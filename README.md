@@ -1,6 +1,6 @@
-# SmartBI
+# DataMind
 
-LLM-orchestrated framework for autonomous exploratory data analysis (EDA) and data pre-processing. Upload a CSV/JSON dataset, and SmartBI generates dataset-specific research questions, writes and self-corrects analysis code, and auto-selects visualizations — producing insights, charts, a cleaned dataset, and a summary with minimal user input.
+LLM-orchestrated framework for autonomous exploratory data analysis (EDA) and data pre-processing. Upload a CSV/JSON dataset, and DataMind generates dataset-specific research questions, writes and self-corrects analysis code, and auto-selects visualizations — producing insights, charts, a cleaned dataset, and a summary with minimal user input.
 
 Built as a research project exploring how far an LLM can autonomously go in the data science pipeline: from "what's worth asking about this data?" to a rendered, explained answer.
 
@@ -23,8 +23,8 @@ Built as a research project exploring how far an LLM can autonomously go in the 
 ## Getting started
 
 ```bash
-git clone https://github.com/<your-username>/smartbi.git
-cd smartbi
+git clone https://github.com/<your-username>/data-mind.git
+cd data-mind
 npm install
 npm run dev
 ```
