@@ -71,3 +71,38 @@ export const MOCK_DATASETS: Dataset[] = [
     primary_domain: 'Marketing Operations',
   },
 ];
+
+const STORAGE_KEY_DATASETS = 'datamind_datasets_session';
+
+export function getStoredDatasets(): Dataset[] {
+  if (typeof window === 'undefined') return MOCK_DATASETS;
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY_DATASETS);
+    if (!raw) {
+      sessionStorage.setItem(STORAGE_KEY_DATASETS, JSON.stringify(MOCK_DATASETS));
+      return MOCK_DATASETS;
+    }
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('Failed to read datasets from sessionStorage:', e);
+    return MOCK_DATASETS;
+  }
+}
+
+export function addStoredDataset(newDataset: Dataset): Dataset[] {
+  const current = getStoredDatasets();
+  const updated = [newDataset, ...current];
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(STORAGE_KEY_DATASETS, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save dataset to sessionStorage:', e);
+    }
+  }
+  return updated;
+}
+
+export function getDatasetById(id: string): Dataset | undefined {
+  const datasets = getStoredDatasets();
+  return datasets.find((d) => d.id === id);
+}

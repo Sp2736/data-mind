@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
-import { MOCK_DATASETS, Dataset } from "@/lib/mock/datasets";
+import { Dataset, getStoredDatasets } from "@/lib/mock/datasets";
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -18,15 +18,18 @@ import {
   Activity,
   CheckCircle2,
   Clock,
-  ExternalLink,
   ChevronRight,
   TrendingUp,
   Search
 } from "lucide-react";
 
 export default function HomePage() {
-  const [datasets] = useState<Dataset[]>(MOCK_DATASETS);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    setDatasets(getStoredDatasets());
+  }, []);
 
   const filteredDatasets = datasets.filter((ds) =>
     ds.filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -100,7 +103,7 @@ export default function HomePage() {
 
               <Link
                 href="/upload"
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 text-xs sm:text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-2xl shadow-md shadow-indigo-200 dark:shadow-none transition-all group w-full sm:w-auto self-start"
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 text-xs sm:text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-2xl shadow-md shadow-indigo-200 dark:shadow-none transition-all group w-full sm:w-auto self-start cursor-pointer"
               >
                 <UploadCloud className="w-4 h-4" />
                 <span>Upload &amp; Analyze Dataset</span>
@@ -139,7 +142,7 @@ export default function HomePage() {
                   {totalRows.toLocaleString()}
                 </div>
                 <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">
-                  Across CSV and JSON fixtures
+                  Across CSV and JSON datasets
                 </p>
               </div>
               <div className="pt-3 border-t border-stone-100 dark:border-stone-800 text-[11px] text-stone-400">
@@ -223,7 +226,7 @@ export default function HomePage() {
 
                   <Link
                     href={`/datasets/${ds.id}`}
-                    className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                    className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors cursor-pointer"
                   >
                     <span>View Profile</span>
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -251,7 +254,7 @@ export default function HomePage() {
 
                 <div className="flex items-center gap-2 text-xs text-stone-400">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Frontend Prototype — Auth State Connected</span>
+                  <span>Frontend Ingestion Layer — Ready</span>
                 </div>
               </div>
             </BentoCard>
