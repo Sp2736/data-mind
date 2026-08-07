@@ -49,7 +49,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
   if (!dataset) {
     return (
       <AuthGuard>
-        <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
+        <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
           <Header />
           <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-16 text-center">
             <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-8 shadow-sm">
@@ -146,11 +146,11 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
 
   return (
     <AuthGuard>
-      <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100 pb-28">
+      <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground) pb-28">
         <Header />
 
         {/* Stage Progression Navigation Bar */}
-        <div className="border-b border-stone-200/60 dark:border-stone-800/80 bg-white/70 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
+        <div className="border-b border-blue-100/60 dark:border-stone-800/80 bg-white/75 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between overflow-x-auto gap-4">
             <Link
               href={`/datasets/${datasetId}`}
@@ -308,7 +308,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
         </main>
 
         {/* Floating / Sticky bottom action control bar */}
-        <div className="fixed bottom-0 left-0 right-0 border-t border-stone-200/80 dark:border-stone-800 bg-white/90 dark:bg-[#191921]/90 backdrop-blur-md shadow-lg z-30 py-4 px-4 sm:px-6">
+        <div className="fixed bottom-0 left-0 right-0 border-t border-blue-100/80 dark:border-stone-800 bg-white/95 dark:bg-[#191921]/90 backdrop-blur-md shadow-lg shadow-blue-100/40 dark:shadow-none z-30 py-4 px-4 sm:px-6">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             
             {/* Left Selection status details */}

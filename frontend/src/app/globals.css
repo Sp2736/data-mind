@@ -1,37 +1,97 @@
 @import "tailwindcss";
 
+/* Override Tailwind v4's default dark mode (prefers-color-scheme) to use
+   the .dark class on <html> instead — controlled by our ThemeProvider. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================
+   DATAMIND — DUAL THEME CSS SYSTEM
+   Blue-themed fintech design. Dark & Light modes.
+   ============================================================ */
+
 @layer base {
+  /* ---- LIGHT MODE (default :root) ---- */
   :root {
-    --background: #faf8f5;
-    --foreground: #1c1917;
+    /* Core backgrounds */
+    --background: #f0f4fa;
+    --surface: #ffffff;
+    --surface-raised: #f8fafd;
+    --surface-sunken: #eaf0f8;
+    --foreground: #0f172a;
+    --foreground-muted: #475569;
+    --foreground-subtle: #94a3b8;
+
+    /* Cards & borders */
     --card: #ffffff;
-    --card-foreground: #1c1917;
-    --border: #e7e5e4;
-    --input: #e7e5e4;
+    --card-foreground: #0f172a;
+    --border: #cbd5e1;
+    --border-subtle: #e2e8f0;
+    --input: #e2e8f0;
+    --input-bg: #f8fafd;
 
-    --pastel-lavender: #ece9fe;
-    --pastel-lavender-dark: #6366f1;
-    --pastel-blue: #e0f2fe;
-    --pastel-mint: #dcfce7;
+    /* Brand blues */
+    --brand-primary: #2563eb;
+    --brand-primary-hover: #1d4ed8;
+    --brand-primary-light: #eff6ff;
+    --brand-primary-muted: #bfdbfe;
+    --brand-accent: #6366f1;
+    --brand-accent-light: #eef2ff;
+
+    /* Pastel accents (light mode versions) */
+    --pastel-lavender: #ede9fe;
+    --pastel-lavender-dark: #4f46e5;
+    --pastel-blue: #dbeafe;
+    --pastel-mint: #d1fae5;
     --pastel-pink: #fce7f3;
-    --pastel-cream: #faf8f5;
+    --pastel-cream: #f0f4fa;
 
-    --status-success: #dcfce7;
-    --status-success-text: #15803d;
-    --status-error: #ffe4e6;
-    --status-error-text: #be123c;
+    /* Status badges */
+    --status-success: #d1fae5;
+    --status-success-text: #065f46;
+    --status-error: #fee2e2;
+    --status-error-text: #991b1b;
     --status-pending: #fef3c7;
-    --status-pending-text: #b45309;
+    --status-pending-text: #92400e;
+
+    /* Shadow tokens */
+    --shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+    --shadow-md: 0 4px 16px 0 rgb(37 99 235 / 0.08), 0 1px 4px -1px rgb(15 23 42 / 0.06);
+    --shadow-card: 0 2px 12px 0 rgb(37 99 235 / 0.07), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+
+    /* Scrollbar */
+    --scrollbar-bg: #e2e8f0;
+    --scrollbar-thumb: #94a3b8;
+    --scrollbar-thumb-hover: #64748b;
   }
 
+  /* ---- DARK MODE ---- */
   .dark {
-    --background: #121216;
-    --foreground: #f3f4f6;
-    --card: #1a1a22;
-    --card-foreground: #f3f4f6;
-    --border: #2a2a36;
-    --input: #2a2a36;
+    /* Core backgrounds */
+    --background: #0a0a12;
+    --surface: #121216;
+    --surface-raised: #191921;
+    --surface-sunken: #0d0d16;
+    --foreground: #f1f5f9;
+    --foreground-muted: #94a3b8;
+    --foreground-subtle: #475569;
 
+    /* Cards & borders */
+    --card: #1a1a22;
+    --card-foreground: #f1f5f9;
+    --border: #2a2a36;
+    --border-subtle: #1f1f2e;
+    --input: #2a2a36;
+    --input-bg: #16161f;
+
+    /* Brand blues */
+    --brand-primary: #3b82f6;
+    --brand-primary-hover: #60a5fa;
+    --brand-primary-light: #1e2a4a;
+    --brand-primary-muted: #1e3a5f;
+    --brand-accent: #818cf8;
+    --brand-accent-light: #1e1e3f;
+
+    /* Pastel accents (dark mode) */
     --pastel-lavender: #2d2b52;
     --pastel-lavender-dark: #818cf8;
     --pastel-blue: #1e3a5f;
@@ -39,17 +99,279 @@
     --pastel-pink: #3b1d2e;
     --pastel-cream: #121216;
 
+    /* Status badges */
     --status-success: #14382c;
     --status-success-text: #86efac;
     --status-error: #3b1d2e;
     --status-error-text: #fca5a5;
     --status-pending: #3d3014;
     --status-pending-text: #fde047;
+
+    /* Shadow tokens */
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 16px 0 rgb(0 0 0 / 0.3);
+    --shadow-card: 0 2px 12px 0 rgb(0 0 0 / 0.25);
+
+    /* Scrollbar */
+    --scrollbar-bg: #1a1a22;
+    --scrollbar-thumb: #2a2a36;
+    --scrollbar-thumb-hover: #3a3a4e;
   }
 }
+
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.2s ease;
 }
+
+/* ============================================================
+   CUSTOM SCROLLBARS — Blue-themed fintech style
+   ============================================================ */
+
+/* Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-bg);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 99px;
+  border: 1.5px solid var(--scrollbar-bg);
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-bg);
+}
+
+/* Thin scrollbar utility for inner containers */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 99px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* ============================================================
+   ANIMATION KEYFRAMES
+   ============================================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   ANIMATION UTILITIES
+   ============================================================ */
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade-in-scale {
+  animation: fadeInScale 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* Stagger helpers for list items */
+.animate-stagger > *:nth-child(1) { animation-delay: 0.04s; }
+.animate-stagger > *:nth-child(2) { animation-delay: 0.08s; }
+.animate-stagger > *:nth-child(3) { animation-delay: 0.12s; }
+.animate-stagger > *:nth-child(4) { animation-delay: 0.16s; }
+.animate-stagger > *:nth-child(5) { animation-delay: 0.20s; }
+.animate-stagger > *:nth-child(6) { animation-delay: 0.24s; }
+
+/* ============================================================
+   THEME-AWARE INTERACTIVE STATES
+   ============================================================ */
+
+/* Smooth transitions on color-related properties for all interactive elements */
+a, button, input, select, textarea, [role="button"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
+
+/* Focus ring — brand blue */
+*:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Selection highlight */
+::selection {
+  background-color: var(--brand-primary-muted);
+  color: var(--foreground);
+}
+
+/* ============================================================
+   GLASS / BLUR OVERLAY UTILITY
+   ============================================================ */
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+}
+
+.glass-dark {
+  background: rgba(18, 18, 22, 0.75);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+}
+
+/* ============================================================
+   CARD HOVER LIFT EFFECT
+   ============================================================ */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================================
+   GRADIENT TEXT UTILITIES
+   ============================================================ */
+
+.gradient-text-blue {
+  background: linear-gradient(135deg, #2563eb 0%, #6366f1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark .gradient-text-blue {
+  background: linear-gradient(135deg, #60a5fa 0%, #818cf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================================
+   PROGRESS BAR ANIMATION
+   ============================================================ */
+.progress-bar-animated {
+  background-size: 200% 100%;
+  background-image: linear-gradient(
+    90deg,
+    #3b82f6 0%,
+    #6366f1 40%,
+    #3b82f6 80%,
+    #6366f1 100%
+  );
+  animation: shimmer 2s linear infinite;
+}
+
+/* ============================================================
+   STATUS PULSE DOT
+   ============================================================ */
+.status-dot-pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+

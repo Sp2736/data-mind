@@ -140,11 +140,11 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
 
   return (
     <AuthGuard>
-      <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
+      <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
         <Header />
 
         {/* Inner Nav Bar for Stage Progression */}
-        <div className="border-b border-stone-200/60 dark:border-stone-800/80 bg-white/70 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
+        <div className="border-b border-blue-100/60 dark:border-stone-800/80 bg-white/75 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between overflow-x-auto gap-4">
             <Link
               href="/home"
@@ -554,10 +554,10 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 <Badge variant="indigo" icon={<CheckCircle2 className="w-3 h-3 text-indigo-400" />}>
                   EDA Planning Stage
                 </Badge>
-                <h3 className="text-base font-bold text-white mt-3 mb-1.5">
+                <h3 className="text-base font-bold dark:text-white text-black mt-3 mb-1.5">
                   Automated Pre-Processing Ready
                 </h3>
-                <p className="text-xs text-stone-300 leading-relaxed">
+                <p className="text-xs dark:text-stone-300 text-slate-700  leading-relaxed">
                   DataMind has parsed the index shape, null ratios, and column associations. In the next stage, the system will use this information to:
                 </p>
                 <ul className="text-xs text-stone-400 space-y-1.5 mt-3 list-disc pl-4 font-medium">

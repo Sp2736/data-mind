@@ -126,7 +126,7 @@ export default function UploadPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
+      <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
         <Header />
 
         <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12">
@@ -158,7 +158,7 @@ export default function UploadPage() {
           </div>
 
           {/* Main Card Container */}
-          <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-8 shadow-sm">
+          <div className="bg-white dark:bg-[#191921] border border-blue-100/60 dark:border-stone-800 rounded-3xl p-6 sm:p-8 shadow-[0_2px_12px_0_rgb(37_99_235/0.06),0_1px_3px_0_rgb(15_23_42/0.05)] dark:shadow-sm">
             {/* Validation Error Alert */}
             {validationError && (
               <div className="mb-6 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200 text-xs flex items-start justify-between gap-3">
@@ -299,7 +299,7 @@ export default function UploadPage() {
                 <div className="max-w-md mx-auto">
                   <div className="w-full h-3 bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden mb-2">
                     <div
-                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300 ease-out"
+                      className="h-full bg-linear-to-r from-blue-500 to-indigo-500 dark:from-indigo-500 dark:to-purple-500 transition-all duration-300 ease-out"
                       style={{ width: `${uploadProgress}%` }}
                     />
                   </div>

@@ -11,8 +11,7 @@ import {
   ArrowRight,
   Sparkles,
   AlertCircle,
-  ShieldCheck,
-  CheckCircle2
+  ShieldCheck
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { MOCK_CURRENT_USER } from "@/lib/mock/users";
@@ -73,38 +72,38 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex items-center justify-center bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100 p-4 sm:p-6 selection:bg-indigo-100 dark:selection:bg-indigo-900">
+    <div className="relative min-h-screen w-full flex items-center justify-center bg-(--background) text-(--foreground) p-4 sm:p-6 selection:bg-blue-100 dark:selection:bg-indigo-900">
       {/* Soft pastel ambient background blobs */}
-      <div className="absolute top-12 left-12 w-80 h-80 bg-indigo-100/60 dark:bg-indigo-950/40 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-12 right-12 w-96 h-96 bg-purple-100/60 dark:bg-purple-950/40 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/3 right-1/4 w-72 h-72 bg-sky-100/50 dark:bg-sky-950/30 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-12 left-12 w-80 h-80 bg-blue-100/50 dark:bg-indigo-950/40 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-12 right-12 w-96 h-96 bg-indigo-100/50 dark:bg-purple-950/40 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/3 right-1/4 w-72 h-72 bg-sky-100/40 dark:bg-sky-950/30 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main Container */}
       <div className="relative z-10 w-full max-w-md">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 mb-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 shadow-sm">
+          <div className="inline-flex items-center justify-center p-3 mb-4 rounded-2xl bg-blue-50 dark:bg-indigo-950/60 border border-blue-100 dark:border-indigo-900/60 text-blue-600 dark:text-indigo-400 shadow-sm">
             <BrainCircuit className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900 dark:text-stone-50">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 dark:text-stone-50">
             DataMind
           </h1>
-          <p className="mt-1.5 text-xs sm:text-sm text-stone-500 dark:text-stone-400 font-normal">
+          <p className="mt-1.5 text-xs sm:text-sm text-slate-500 dark:text-stone-400 font-normal">
             Autonomous Data Analytics &amp; Insights Platform
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-8 shadow-xl shadow-stone-200/40 dark:shadow-none">
+        <div className="bg-white dark:bg-[#191921] border border-blue-100/60 dark:border-stone-800 rounded-3xl p-6 sm:p-8 shadow-[0_4px_24px_0_rgb(37_99_235/_0.08),0_1px_4px_0_rgb(15_23_42/_0.06)] dark:shadow-none">
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-stone-100 dark:border-stone-800/80">
             <div>
-              <h2 className="text-lg font-semibold text-stone-900 dark:text-stone-100">Welcome Back</h2>
-              <p className="text-xs text-stone-500 dark:text-stone-400">Sign in to access your workspace</p>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-stone-100">Welcome Back</h2>
+              <p className="text-xs text-slate-500 dark:text-stone-400">Sign in to access your workspace</p>
             </div>
             <button
               type="button"
               onClick={handleQuickFill}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 border border-indigo-200/60 dark:border-indigo-800/60 rounded-full transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-indigo-300 bg-blue-50 dark:bg-indigo-950/80 hover:bg-blue-100 dark:hover:bg-indigo-900/70 border border-blue-200/60 dark:border-indigo-800/60 rounded-full transition-all"
               title="Auto-fill demo credentials"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -128,7 +127,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="email"
-                className="block text-xs font-medium text-stone-600 dark:text-stone-300 mb-1.5"
+                className="block text-xs font-medium text-slate-600 dark:text-stone-300 mb-1.5"
               >
                 Email Address
               </label>
@@ -143,10 +142,10 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   onBlur={() => setTouched((prev) => ({ ...prev, email: true }))}
                   placeholder="analyst@datamind.ai"
-                  className={`w-full pl-10 pr-4 py-2.5 text-sm bg-stone-50 dark:bg-stone-900/70 text-stone-900 dark:text-stone-100 placeholder-stone-400 rounded-xl border transition-all focus:outline-none ${
+                  className={`w-full pl-10 pr-4 py-2.5 text-sm bg-blue-50/40 dark:bg-stone-900/70 text-slate-900 dark:text-stone-100 placeholder-slate-400 rounded-xl border transition-all focus:outline-none ${
                     emailError
                       ? "border-rose-300 dark:border-rose-800 bg-rose-50/30"
-                      : "border-stone-200 dark:border-stone-800 focus:border-indigo-400 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-stone-900"
+                      : "border-blue-200/60 dark:border-stone-800 focus:border-blue-400 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-stone-900"
                   }`}
                 />
               </div>
@@ -163,14 +162,14 @@ export default function LoginPage() {
               <div className="flex items-center justify-between mb-1.5">
                 <label
                   htmlFor="password"
-                  className="block text-xs font-medium text-stone-600 dark:text-stone-300"
+                  className="block text-xs font-medium text-slate-600 dark:text-stone-300"
                 >
                   Password
                 </label>
                 <a
                   href="#forgot"
                   onClick={(e) => e.preventDefault()}
-                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="text-xs text-blue-600 dark:text-indigo-400 hover:underline"
                 >
                   Forgot?
                 </a>
@@ -186,10 +185,10 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   onBlur={() => setTouched((prev) => ({ ...prev, password: true }))}
                   placeholder="••••••••••••"
-                  className={`w-full pl-10 pr-10 py-2.5 text-sm bg-stone-50 dark:bg-stone-900/70 text-stone-900 dark:text-stone-100 placeholder-stone-400 rounded-xl border transition-all focus:outline-none ${
+                  className={`w-full pl-10 pr-10 py-2.5 text-sm bg-blue-50/40 dark:bg-stone-900/70 text-slate-900 dark:text-stone-100 placeholder-slate-400 rounded-xl border transition-all focus:outline-none ${
                     passwordError
                       ? "border-rose-300 dark:border-rose-800 bg-rose-50/30"
-                      : "border-stone-200 dark:border-stone-800 focus:border-indigo-400 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-stone-900"
+                      : "border-blue-200/60 dark:border-stone-800 focus:border-blue-400 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-stone-900"
                   }`}
                 />
                 <button
@@ -215,7 +214,7 @@ export default function LoginPage() {
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-stone-300 text-indigo-600 focus:ring-0 cursor-pointer"
+                  className="w-4 h-4 rounded border-blue-300 dark:border-stone-300 text-blue-600 dark:text-indigo-600 focus:ring-0 cursor-pointer"
                 />
                 <span>Remember session</span>
               </label>
@@ -225,7 +224,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting || !isFormValid}
-              className="w-full mt-2 py-2.5 px-4 flex items-center justify-center gap-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-xl shadow-md shadow-indigo-200 dark:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              className="w-full mt-2 py-2.5 px-4 flex items-center justify-center gap-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-xl shadow-md shadow-blue-200 dark:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {isSubmitting ? (
                 <>
@@ -242,14 +241,14 @@ export default function LoginPage() {
           </form>
 
           {/* Scope notice */}
-          <div className="mt-6 pt-4 border-t border-stone-100 dark:border-stone-800/80 flex items-center justify-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+          <div className="mt-6 pt-4 border-t border-blue-100/60 dark:border-stone-800/80 flex items-center justify-center gap-2 text-xs text-slate-500 dark:text-stone-400">
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>Mocked Auth Phase — Use demo fill or any email</span>
           </div>
         </div>
 
         {/* Footer */}
-        <p className="mt-6 text-center text-xs text-stone-400 dark:text-stone-500">
+        <p className="mt-6 text-center text-xs text-slate-400 dark:text-stone-500">
           DataMind &copy; 2026. Minimalist UI &amp; Auth Module.
         </p>
       </div>

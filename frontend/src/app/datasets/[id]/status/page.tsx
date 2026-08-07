@@ -421,7 +421,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
               </div>
 
               {isConsoleExpanded && (
-                <div className="bg-[#121215] border border-stone-800 rounded-3xl p-4 sm:p-5 shadow-inner flex flex-col font-mono text-[11px] h-[360px] overflow-hidden relative">
+                <div className="bg-white-30/10 dark:bg-[#121215] border border-stone-800 rounded-3xl p-4 sm:p-5 shadow-inner flex flex-col font-mono text-[11px] h-[360px] overflow-hidden relative">
                   
                   {/* Console header lights */}
                   <div className="flex items-center justify-between pb-3 border-b border-stone-800 mb-3 text-[10px] text-stone-500 font-bold">
@@ -437,7 +437,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
                   {/* Autoscrolling Log Statements */}
                   <div className="flex-1 overflow-y-auto space-y-1.5 text-stone-300 pr-1 scrollbar-thin select-text">
                     {consoleLogs.map((log, idx) => {
-                      let colorClass = "text-stone-300";
+                      let colorClass   = "text-stone-400";
                       if (log.includes("[error]")) colorClass = "text-rose-400 font-semibold";
                       else if (log.includes("[pipeline] Warning:")) colorClass = "text-amber-400 font-semibold";
                       else if (log.includes("[pipeline]")) colorClass = "text-indigo-400";
@@ -478,7 +478,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
 
               <Link
                 href={`/datasets/${datasetId}/insights`}
-                className="inline-flex items-center justify-center gap-1.5 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs sm:text-sm font-bold shadow-md shadow-emerald-200 dark:shadow-none hover:shadow-lg transition-all group shrink-0 w-full sm:w-auto cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs sm:text-sm font-bold transition-all group shrink-0 w-full sm:w-auto cursor-pointer"
               >
                 <span>View Analysis Insights</span>
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />

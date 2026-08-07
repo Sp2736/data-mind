@@ -30,9 +30,23 @@ export function BentoCard({
 }: BentoCardProps) {
   return (
     <div
-      className={`group relative rounded-3xl bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800/90 p-6 sm:p-7 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden ${colSpan} ${rowSpan} ${className}`}
+      className={`
+        group relative rounded-3xl overflow-hidden
+        bg-white dark:bg-[#191921]
+        border border-blue-100/60 dark:border-stone-800/90
+        p-6 sm:p-7
+        shadow-[0_2px_12px_0_rgb(37_99_235/0.06),0_1px_3px_0_rgb(15_23_42/0.05)]
+        dark:shadow-sm
+        hover:shadow-[0_4px_20px_0_rgb(37_99_235/0.10),0_1px_4px_0_rgb(15_23_42/0.06)]
+        dark:hover:shadow-md
+        hover:-translate-y-0.5
+        transition-all duration-200
+        animate-fade-in-scale
+        ${colSpan} ${rowSpan} ${className}
+      `}
     >
       {children}
     </div>
   );
 }
+
