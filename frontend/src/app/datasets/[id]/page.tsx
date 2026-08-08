@@ -246,7 +246,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 </button>
                 <Link
                   href={`/datasets/${datasetId}/rqs`}
-                  className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-100 dark:shadow-none hover:shadow-lg transition-all group cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold dark:shadow-none transition-all group cursor-pointer"
                 >
                   <span>Select RQs</span>
                   <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />

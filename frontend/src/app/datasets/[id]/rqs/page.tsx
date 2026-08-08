@@ -344,7 +344,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
             <div className="flex items-center gap-3 self-stretch sm:self-auto justify-end">
               <Link
                 href={`/datasets/${datasetId}`}
-                className="px-4 py-2.5 text-xs font-semibold border border-stone-200 dark:border-stone-800 rounded-xl text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-850 transition-colors"
+                className="px-4 py-2.5 text-xs font-semibold border border-stone-200/80 dark:border-stone-800 rounded-xl text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
               >
                 Back to Profile
               </Link>
@@ -352,7 +352,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
               <button
                 onClick={handleRunSelected}
                 disabled={selectedIds.length === 0}
-                className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-100 dark:shadow-none hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer group"
+                className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold dark:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer group"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Run Selected Pipeline</span>
