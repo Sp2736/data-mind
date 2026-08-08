@@ -1,0 +1,20 @@
+﻿services:
+  postgres:
+    image: postgres:16
+    container_name: datamind-postgres
+    environment:
+      POSTGRES_USER: datamind
+      POSTGRES_PASSWORD: datamind_local_dev
+      POSTGRES_DB: datamind
+    ports:
+      - "5432:5432"
+    volumes:
+      - datamind_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datamind"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  datamind_postgres_data:
