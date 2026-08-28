@@ -27,6 +27,3 @@ build/
 
 # Logs
 *.log
-
-# Local project files
-datamind*.md
