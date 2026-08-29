@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
 import { Dataset, getStoredDatasets } from "@/lib/mock/datasets";
+import { listDatasets as apiListDatasets } from "@/lib/api/datasets";
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -28,7 +29,40 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    setDatasets(getStoredDatasets());
+    let isMounted = true;
+    async function loadDatasets() {
+      try {
+        const apiDatasets = await apiListDatasets();
+        if (isMounted && apiDatasets && apiDatasets.length > 0) {
+          // Map ApiDataset to Dataset interface format if needed
+          const mapped: Dataset[] = apiDatasets.map((d) => ({
+            id: d.id,
+            user_id: "usr_local_01",
+            filename: d.filename,
+            format: (d.format as "csv" | "json") || "csv",
+            storage_path: `data/datasets/raw/${d.filename}`,
+            row_count: d.row_count || 0,
+            column_count: d.column_count || 0,
+            file_size_bytes: d.file_size_bytes || 0,
+            uploaded_at: d.uploaded_at,
+            status: d.status as "ready" | "processing" | "failed",
+            description: d.description || `Uploaded dataset ${d.filename}`,
+            primary_domain: d.primary_domain || (d.format === "json" ? "Structured JSON" : "Tabular Data"),
+          }));
+          setDatasets(mapped);
+          return;
+        }
+      } catch (err) {
+        console.warn("Could not fetch datasets from backend API, using local datasets:", err);
+      }
+      if (isMounted) {
+        setDatasets(getStoredDatasets());
+      }
+    }
+    loadDatasets();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const filteredDatasets = datasets.filter((ds) =>

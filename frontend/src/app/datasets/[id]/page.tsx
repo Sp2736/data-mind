@@ -6,8 +6,9 @@ import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
-import { getDatasetById } from "@/lib/mock/datasets";
-import { getDatasetProfile } from "@/lib/mock/datasetProfiles";
+import { getDatasetById, Dataset } from "@/lib/mock/datasets";
+import { getDatasetProfile, DatasetProfile } from "@/lib/mock/datasetProfiles";
+import { getDataset as apiGetDataset, getDatasetProfile as apiGetDatasetProfile } from "@/lib/api/datasets";
 import { 
   ArrowLeft, 
   FileSpreadsheet, 
@@ -50,24 +51,86 @@ const convertToCSV = (objArray: Record<string, any>[]) => {
 export default function DatasetProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const datasetId = resolvedParams.id;
-  const dataset = getDatasetById(datasetId);
-  
-  // Get detailed profile
-  const profile = getDatasetProfile(
-    datasetId,
-    dataset?.filename,
-    dataset?.format,
-    dataset?.row_count,
-    dataset?.column_count
-  );
 
+  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [schemaSearch, setSchemaSearch] = useState("");
   const [selectedStatColumn, setSelectedStatColumn] = useState<string>("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadData() {
+      setIsLoading(true);
+      try {
+        const apiDs = await apiGetDataset(datasetId);
+        if (isMounted && apiDs) {
+          const mappedDs: Dataset = {
+            id: apiDs.id,
+            user_id: "usr_local_01",
+            filename: apiDs.filename,
+            format: (apiDs.format as "csv" | "json") || "csv",
+            storage_path: `data/datasets/raw/${apiDs.filename}`,
+            row_count: apiDs.row_count || 0,
+            column_count: apiDs.column_count || 0,
+            file_size_bytes: apiDs.file_size_bytes || 0,
+            uploaded_at: apiDs.uploaded_at,
+            status: apiDs.status as "ready" | "processing" | "failed",
+            description: apiDs.description || `Uploaded dataset ${apiDs.filename}`,
+            primary_domain: apiDs.primary_domain || (apiDs.format === "json" ? "Structured JSON" : "Tabular Data"),
+          };
+          setDataset(mappedDs);
+
+          try {
+            const apiProf = await apiGetDatasetProfile(datasetId);
+            if (isMounted && apiProf) {
+              const mappedProf: DatasetProfile = {
+                id: `dp_${apiProf.dataset_id}`,
+                dataset_id: apiProf.dataset_id,
+                schema_summary: apiProf.schema_summary,
+                stats_summary: apiProf.stats_summary,
+                correlation_summary: apiProf.correlation_summary,
+                sample_rows: apiProf.sample_rows,
+              };
+              setProfile(mappedProf);
+              setIsLoading(false);
+              return;
+            }
+          } catch (profErr) {
+            console.warn("Backend profile not ready yet:", profErr);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch dataset from backend API, using local mock data:", err);
+      }
+
+      if (isMounted) {
+        const localDs = getDatasetById(datasetId);
+        setDataset(localDs || null);
+        if (localDs) {
+          const localProf = getDatasetProfile(
+            datasetId,
+            localDs.filename,
+            localDs.format,
+            localDs.row_count,
+            localDs.column_count
+          );
+          setProfile(localProf);
+        }
+        setIsLoading(false);
+      }
+    }
+
+    loadData();
+    return () => {
+      isMounted = false;
+    };
+  }, [datasetId]);
 
   // Initialize selected stat column once profile is loaded
   useEffect(() => {
     if (profile && profile.schema_summary.length > 0) {
-      // Prefer numeric columns for stats representation first, else first column
       const numericCols = profile.schema_summary.filter(
         c => c.data_type.startsWith("NUMERIC") || c.data_type === "INTEGER"
       );
@@ -77,9 +140,26 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
         setSelectedStatColumn(profile.schema_summary[0].column_name);
       }
     }
-  }, [datasetId]);
+  }, [profile]);
 
-  if (!dataset) {
+  if (isLoading) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
+          <Header />
+          <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-16 text-center">
+            <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-8 shadow-sm">
+              <div className="w-8 h-8 mx-auto mb-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <h2 className="text-lg font-semibold text-stone-900 dark:text-stone-100 mb-1">Loading Dataset Profile...</h2>
+              <p className="text-xs text-stone-500 dark:text-stone-400">Fetching schema summary and statistics from DataMind backend</p>
+            </div>
+          </main>
+        </div>
+      </AuthGuard>
+    );
+  }
+
+  if (!dataset || !profile) {
     return (
       <AuthGuard>
         <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">

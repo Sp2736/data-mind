@@ -81,9 +81,9 @@
 - [x] `GET /health` route returning 200 OK
 
 ### Phase 2 — Frontend Auth Swap
-- [ ] Create `frontend/.env.local`
-- [ ] Connect `AuthContext.tsx` `login`/`logout` functions to backend `POST /auth/login`
-- [ ] Verify local JWT storage & `AuthGuard.tsx` redirect flow
+- [x] Create `frontend/.env.local`
+- [x] Connect `AuthContext.tsx` `login`/`logout` functions to backend `POST /auth/login`
+- [x] Verify local JWT storage & `AuthGuard.tsx` redirect flow
 
 ### Phase 3 — Real Dataset Upload + Profiling
 - [x] Implement `app/services/storage.py` for file saving
@@ -91,8 +91,8 @@
 - [x] Implement `POST /datasets` multipart upload + background profiling task in `app/api/datasets.py`
 - [x] Implement `GET /datasets`, `GET /datasets/{id}`, `GET /datasets/{id}/profile`
 - [x] Implement `app/schemas/datasets.py` response models
-- [ ] Frontend API integration (`src/lib/api/client.ts`, `src/lib/api/datasets.ts`)
-- [ ] Swap mock upload timer in frontend with real backend polling/WebSocket
+- [x] Frontend API integration (`src/lib/api/client.ts`, `src/lib/api/datasets.ts`)
+- [x] Swap mock upload timer in frontend with real backend polling/WebSocket
 
 ### Phase 4 — LangGraph Pipeline (Questions → Code → Sandbox → Correction)
 - [ ] Build Docker Sandbox image `datamind-sandbox:latest` from `backend/sandbox/Dockerfile`

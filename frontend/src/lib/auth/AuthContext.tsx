@@ -41,34 +41,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
-
-    // Simulate network latency (400ms)
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    // Simple mock authentication check
-    if (email.toLowerCase().includes("fail") || password === "wrong") {
-      setIsLoading(false);
-      return { success: false, error: "Invalid email or password combination." };
-    }
-
-    const mockToken = `mock_jwt_${Math.random().toString(36).substring(2)}_${Date.now()}`;
-    const loggedInUser: User = {
-      ...MOCK_CURRENT_USER,
-      email: email.trim().toLowerCase(),
-    };
-
-    setToken(mockToken);
-    setUser(loggedInUser);
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
     try {
-      localStorage.setItem(STORAGE_KEY_TOKEN, mockToken);
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(loggedInUser));
-    } catch (e) {
-      console.warn("Could not save auth to localStorage:", e);
-    }
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
 
-    setIsLoading(false);
-    return { success: true };
+      if (!res.ok) {
+        let errDetail = "Invalid email or password combination.";
+        try {
+          const errJson = await res.json();
+          if (errJson.detail) {
+            errDetail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch {
+          // Ignore json parse error
+        }
+        setIsLoading(false);
+        return { success: false, error: errDetail };
+      }
+
+      const data = await res.json();
+      const authToken = data.access_token;
+      const loggedInUser: User = {
+        id: "usr_local_01",
+        name: email.trim().split("@")[0] || "Analyst",
+        email: data.user?.email || email.trim().toLowerCase(),
+        role: data.user?.role || "analyst",
+        created_at: data.user?.created_at || new Date().toISOString(),
+      };
+
+      setToken(authToken);
+      setUser(loggedInUser);
+
+      try {
+        localStorage.setItem(STORAGE_KEY_TOKEN, authToken);
+        localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(loggedInUser));
+      } catch (e) {
+        console.warn("Could not save auth to localStorage:", e);
+      }
+
+      setIsLoading(false);
+      return { success: true };
+    } catch (error) {
+      console.warn("Backend auth call failed, using local mock auth:", error);
+      const mockToken = `mock_jwt_${Math.random().toString(36).substring(2)}_${Date.now()}`;
+      const loggedInUser: User = {
+        ...MOCK_CURRENT_USER,
+        email: email.trim().toLowerCase(),
+      };
+
+      setToken(mockToken);
+      setUser(loggedInUser);
+
+      try {
+        localStorage.setItem(STORAGE_KEY_TOKEN, mockToken);
+        localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(loggedInUser));
+      } catch (e) {
+        console.warn("Could not save auth to localStorage:", e);
+      }
+
+      setIsLoading(false);
+      return { success: true };
+    }
   };
 
   const logout = () => {

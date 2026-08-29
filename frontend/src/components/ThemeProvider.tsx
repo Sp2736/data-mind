@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 
@@ -30,14 +30,21 @@ export function ThemeProvider({ children, defaultTheme = "dark" }: ThemeProvider
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     try {
       const saved = localStorage.getItem("datamind-theme") as Theme | null;
-      if (saved === "light" || saved === "dark") {
-        setThemeState(saved);
+      const initialTheme = saved === "light" || saved === "dark" ? saved : defaultTheme;
+      setThemeState(initialTheme);
+      const root = document.documentElement;
+      if (initialTheme === "dark") {
+        root.classList.add("dark");
+        root.classList.remove("light");
+      } else {
+        root.classList.add("light");
+        root.classList.remove("dark");
       }
     } catch {}
-  }, []);
+    setMounted(true);
+  }, [defaultTheme]);
 
   useEffect(() => {
     if (!mounted) return;

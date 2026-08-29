@@ -10,15 +10,15 @@ export interface SchemaSummaryItem {
 export interface StatsSummaryItem {
   column_name: string;
   count: number;
-  mean?: number;
-  std?: number;
-  min?: number;
-  q25?: number;
-  q50?: number; // median
-  q75?: number;
-  max?: number;
-  most_frequent_value?: string | number;
-  most_frequent_count?: number;
+  mean?: number | null;
+  std?: number | null;
+  min?: number | null;
+  q25?: number | null;
+  q50?: number | null; // median
+  q75?: number | null;
+  max?: number | null;
+  most_frequent_value?: string | number | null;
+  most_frequent_count?: number | null;
 }
 
 export interface CorrelationItem {
