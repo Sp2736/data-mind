@@ -1,0 +1,672 @@
+[
+  {
+    "domain": "finance",
+    "name": "Credit Card Fraud Detection",
+    "url": "mlg-ulb/creditcardfraud"
+  },
+  {
+    "domain": "finance",
+    "name": "Lending Club Loan Data",
+    "url": "wordsforthewise/lending-club"
+  },
+  {
+    "domain": "finance",
+    "name": "Credit Card Approval Prediction",
+    "url": "rikdifos/credit-card-approval-prediction"
+  },
+  {
+    "domain": "finance",
+    "name": "Give Me Some Credit",
+    "url": "brycecf/give-me-some-credit-dataset"
+  },
+  {
+    "domain": "finance",
+    "name": "US Stock Market Data",
+    "url": "borismarjanovic/price-volume-data-for-all-us-stocks-etfs"
+  },
+  {
+    "domain": "finance",
+    "name": "S&P 500 Stock Data",
+    "url": "camnugent/sandp500"
+  },
+  {
+    "domain": "finance",
+    "name": "Bitcoin Historical Data",
+    "url": "mczielinski/bitcoin-historical-data"
+  },
+  {
+    "domain": "finance",
+    "name": "World Bank Global Financial Inclusion",
+    "url": "worldbank/global-findex"
+  },
+  {
+    "domain": "finance",
+    "name": "Bank Marketing Dataset",
+    "url": "janiobachmann/bank-marketing-dataset"
+  },
+  {
+    "domain": "finance",
+    "name": "Insurance Claims Fraud",
+    "url": "shivamb/vehicle-claim-fraud-detection"
+  },
+  {
+    "domain": "finance",
+    "name": "Insurance Premium Prediction",
+    "url": "noordeen/insurance-premium-prediction"
+  },
+  {
+    "domain": "finance",
+    "name": "Personal Loan Default Prediction",
+    "url": "itssuru/loan-data"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Heart Disease UCI",
+    "url": "ronitf/heart-disease-uci"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Diabetes Dataset",
+    "url": "mathchi/diabetes-data-set"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Breast Cancer Wisconsin Diagnostic",
+    "url": "uciml/breast-cancer-wisconsin-data"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Stroke Prediction Dataset",
+    "url": "fedesoriano/stroke-prediction-dataset"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Chronic Kidney Disease",
+    "url": "mansoordaku/ckdisease"
+  },
+  {
+    "domain": "healthcare",
+    "name": "COVID-19 Dataset",
+    "url": "imdevskp/corona-virus-report"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Hospital Readmissions",
+    "url": "brandao/diabetes"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Medical Cost Personal Dataset",
+    "url": "mirichoi0218/insurance"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Mental Health in Tech Survey",
+    "url": "osmi/mental-health-in-tech-survey"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Sleep Health and Lifestyle",
+    "url": "uom190346a/sleep-health-and-lifestyle-dataset"
+  },
+  {
+    "domain": "healthcare",
+    "name": "Pima Indians Diabetes",
+    "url": "uciml/pima-indians-diabetes-database"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Online Retail Dataset",
+    "url": "carrie1/ecommerce-data"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Brazilian E-Commerce (Olist)",
+    "url": "olistbr/brazilian-ecommerce"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "E-commerce Customer Behavior",
+    "url": "shashwatwork/ecommerce-customer-behavior-dataset"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Amazon Sales Dataset",
+    "url": "karkavelrajaj/amazon-sales-dataset"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Superstore Sales Data",
+    "url": "vivek468/superstore-dataset-final"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Black Friday Sales",
+    "url": "sdolezel/black-friday"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Retail Store Inventory Forecasting",
+    "url": "anirudhchauhan/retail-store-inventory-forecasting"
+  },
+  {
+    "domain": "e-commerce",
+    "name": "Instacart Market Basket Analysis",
+    "url": "psparks/instacart-market-basket-analysis"
+  },
+  {
+    "domain": "hr",
+    "name": "IBM HR Analytics Attrition",
+    "url": "pavansubhasht/ibm-hr-analytics-attrition-dataset"
+  },
+  {
+    "domain": "hr",
+    "name": "HR Employee Attrition & Performance",
+    "url": "patelprashant/employee-attrition"
+  },
+  {
+    "domain": "hr",
+    "name": "HR Analytics Job Change",
+    "url": "arashnic/hr-analytics-job-change-of-data-scientists"
+  },
+  {
+    "domain": "hr",
+    "name": "Employee Salaries Dataset",
+    "url": "montgomerycountymd/employee-salaries"
+  },
+  {
+    "domain": "hr",
+    "name": "Company Employee Performance",
+    "url": "sanjanchaudhari/employees-performance-for-hr-analytics"
+  },
+  {
+    "domain": "marketing",
+    "name": "Bank Marketing",
+    "url": "henriqueyamahata/bank-marketing"
+  },
+  {
+    "domain": "marketing",
+    "name": "Marketing Campaign Response",
+    "url": "jackdaoud/marketing-data"
+  },
+  {
+    "domain": "marketing",
+    "name": "Customer Personality Analysis",
+    "url": "imakash3011/customer-personality-analysis"
+  },
+  {
+    "domain": "marketing",
+    "name": "Social Media Ad Campaign Performance",
+    "url": "loveall/clicks-conversion-tracking"
+  },
+  {
+    "domain": "marketing",
+    "name": "Digital Marketing Campaign Dataset",
+    "url": "rabieelkharoua/predict-conversion-in-digital-marketing-dataset"
+  },
+  {
+    "domain": "sports",
+    "name": "FIFA 23 Player Dataset",
+    "url": "stefanoleone992/fifa-23-complete-player-dataset"
+  },
+  {
+    "domain": "sports",
+    "name": "NBA Players Stats",
+    "url": "justinas/nba-players-data"
+  },
+  {
+    "domain": "sports",
+    "name": "IPL Complete Dataset",
+    "url": "patrickb1912/ipl-complete-dataset-20082020"
+  },
+  {
+    "domain": "sports",
+    "name": "FIFA World Cup Dataset",
+    "url": "abecklas/fifa-world-cup"
+  },
+  {
+    "domain": "sports",
+    "name": "Premier League Match Data",
+    "url": "saife245/english-premier-league"
+  },
+  {
+    "domain": "sports",
+    "name": "Olympic Historical Dataset",
+    "url": "heesoo37/120-years-of-olympic-history-athletes-and-results"
+  },
+  {
+    "domain": "real-estate",
+    "name": "House Prices Advanced Regression",
+    "url": "https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques"
+  },
+  {
+    "domain": "real-estate",
+    "name": "USA Housing Dataset",
+    "url": "vedavyasv/usa-housing"
+  },
+  {
+    "domain": "real-estate",
+    "name": "Melbourne Housing Market",
+    "url": "anthonypino/melbourne-housing-market"
+  },
+  {
+    "domain": "real-estate",
+    "name": "Bengaluru House Price Data",
+    "url": "amitabhajoy/bengaluru-house-price-data"
+  },
+  {
+    "domain": "real-estate",
+    "name": "California Housing Prices",
+    "url": "camnugent/california-housing-prices"
+  },
+  {
+    "domain": "real-estate",
+    "name": "Zillow Real Estate Data",
+    "url": "paultimothymooney/zillow-house-price-data"
+  },
+  {
+    "domain": "energy",
+    "name": "Household Power Consumption",
+    "url": "uciml/electric-power-consumption-data-set"
+  },
+  {
+    "domain": "energy",
+    "name": "Global Energy Consumption & Production",
+    "url": "csafrit2/global-energy-consumption-and-production"
+  },
+  {
+    "domain": "energy",
+    "name": "Solar Power Generation Data",
+    "url": "anikannal/solar-power-generation-data"
+  },
+  {
+    "domain": "energy",
+    "name": "World Energy Consumption",
+    "url": "pralabhpoudel/world-energy-consumption"
+  },
+  {
+    "domain": "transportation",
+    "name": "NYC Taxi Trip Duration",
+    "url": "https://www.kaggle.com/competitions/nyc-taxi-trip-duration"
+  },
+  {
+    "domain": "transportation",
+    "name": "Uber Pickups in NYC",
+    "url": "fivethirtyeight/uber-pickups-in-new-york-city"
+  },
+  {
+    "domain": "transportation",
+    "name": "Flight Delay and Cancellation Data",
+    "url": "patrickzel/flight-delay-and-cancellation-dataset-2019-2023"
+  },
+  {
+    "domain": "transportation",
+    "name": "Airline Passenger Satisfaction",
+    "url": "teejmahal20/airline-passenger-satisfaction"
+  },
+  {
+    "domain": "transportation",
+    "name": "Car Accident Severity Data",
+    "url": "sobhanmoosavi/us-accidents"
+  },
+  {
+    "domain": "social-media",
+    "name": "Twitter Sentiment Analysis",
+    "url": "kazanova/sentiment140"
+  },
+  {
+    "domain": "social-media",
+    "name": "Reddit Data",
+    "url": "curiel/reddit-r-artificial-posts"
+  },
+  {
+    "domain": "social-media",
+    "name": "Instagram Influencer Data",
+    "url": "shreyasajal/instagram-influencer-data"
+  },
+  {
+    "domain": "social-media",
+    "name": "Social Media Usage Dataset",
+    "url": "bhadramohit/social-media-usage-datasetapplications"
+  },
+  {
+    "domain": "education",
+    "name": "Students Performance in Exams",
+    "url": "spscientist/students-performance-in-exams"
+  },
+  {
+    "domain": "education",
+    "name": "Student Alcohol Consumption",
+    "url": "uciml/student-alcohol-consumption"
+  },
+  {
+    "domain": "education",
+    "name": "Higher Education Students Performance",
+    "url": "csafrit2/higher-education-students-performance-evaluation"
+  },
+  {
+    "domain": "education",
+    "name": "Student Dropout and Academic Success",
+    "url": "thedevastator/higher-education-predictors-of-student-retention"
+  },
+  {
+    "domain": "agriculture",
+    "name": "Crop Recommendation Dataset",
+    "url": "atharvaingle/crop-recommendation-dataset"
+  },
+  {
+    "domain": "agriculture",
+    "name": "Agriculture Crop Yield Dataset",
+    "url": "patelris/crop-yield-prediction-dataset"
+  },
+  {
+    "domain": "agriculture",
+    "name": "Global Food Prices Dataset",
+    "url": "usaid/food-prices"
+  },
+  {
+    "domain": "agriculture",
+    "name": "Rainfall Prediction Dataset",
+    "url": "subho117/rainfall-prediction-using-machine-learning"
+  },
+  {
+    "domain": "climate",
+    "name": "Global Temperature Anomalies",
+    "url": "berkeleyearth/climate-change-earth-surface-temperature-data"
+  },
+  {
+    "domain": "climate",
+    "name": "Historical Weather Data",
+    "url": "muthuj7/weather-dataset"
+  },
+  {
+    "domain": "climate",
+    "name": "CO2 Emissions by Country",
+    "url": "yoannboyere/co2-ghg-emissionsdata"
+  },
+  {
+    "domain": "climate",
+    "name": "Air Quality Data",
+    "url": "rohanrao/air-quality-data-in-india"
+  },
+  {
+    "domain": "cybersecurity",
+    "name": "Network Intrusion Detection (NSL-KDD)",
+    "url": "hassan06/nslkdd"
+  },
+  {
+    "domain": "cybersecurity",
+    "name": "Phishing Website Dataset",
+    "url": "eswarchandt/phishing-website-detector"
+  },
+  {
+    "domain": "cybersecurity",
+    "name": "Malware Detection Dataset",
+    "url": "subhajournal/malware-detection"
+  },
+  {
+    "domain": "cybersecurity",
+    "name": "Credit Card Fraud Detection Alt",
+    "url": "kartik2112/fraud-detection"
+  },
+  {
+    "domain": "retail",
+    "name": "Walmart Sales Forecasting",
+    "url": "https://www.kaggle.com/competitions/walmart-recruiting-store-sales-forecasting"
+  },
+  {
+    "domain": "retail",
+    "name": "Retail Sales Data",
+    "url": "manjeetsingh/retaildataset"
+  },
+  {
+    "domain": "retail",
+    "name": "Grocery Store Dataset",
+    "url": "heeraldedhia/groceries-dataset"
+  },
+  {
+    "domain": "retail",
+    "name": "Supermarket Sales",
+    "url": "aungpyaeap/supermarket-sales"
+  },
+  {
+    "domain": "telecom",
+    "name": "Telco Customer Churn",
+    "url": "blastchar/telco-customer-churn"
+  },
+  {
+    "domain": "telecom",
+    "name": "Telecom Churn Dataset",
+    "url": "mnassrib/telecom-churn-datasets"
+  },
+  {
+    "domain": "telecom",
+    "name": "Mobile Price Classification",
+    "url": "iabhishekofficial/mobile-price-classification"
+  },
+  {
+    "domain": "gaming",
+    "name": "Video Game Sales",
+    "url": "gregorut/videogamesales"
+  },
+  {
+    "domain": "gaming",
+    "name": "Steam Games Dataset",
+    "url": "fronkongames/steam-games-dataset"
+  },
+  {
+    "domain": "gaming",
+    "name": "Chess Game Dataset (Lichess)",
+    "url": "datasnaek/chess"
+  },
+  {
+    "domain": "gaming",
+    "name": "PUBG Match Deaths and Statistics",
+    "url": "skihikingkevin/pubg-match-deaths"
+  },
+  {
+    "domain": "entertainment",
+    "name": "Netflix Movies and TV Shows",
+    "url": "shivamb/netflix-shows"
+  },
+  {
+    "domain": "entertainment",
+    "name": "IMDB Movies Dataset",
+    "url": "harshitshankhdhar/imdb-dataset-of-top-1000-movies-and-tv-shows"
+  },
+  {
+    "domain": "entertainment",
+    "name": "TMDB 5000 Movie Dataset",
+    "url": "tmdb/tmdb-movie-metadata"
+  },
+  {
+    "domain": "entertainment",
+    "name": "Spotify Tracks Dataset",
+    "url": "maharshipandya/-spotify-tracks-dataset"
+  },
+  {
+    "domain": "entertainment",
+    "name": "Grammy Awards Dataset",
+    "url": "unanimad/grammy-awards"
+  },
+  {
+    "domain": "food",
+    "name": "Zomato Restaurants Data",
+    "url": "shrutimehta/zomato-restaurants-data"
+  },
+  {
+    "domain": "food",
+    "name": "Wine Quality Dataset",
+    "url": "yasserh/wine-quality-dataset"
+  },
+  {
+    "domain": "food",
+    "name": "Recipe Ingredients Dataset",
+    "url": "kaggle/recipe-ingredients-dataset"
+  },
+  {
+    "domain": "food",
+    "name": "Nutrition Facts for McDonald's Menu",
+    "url": "mcdonalds/nutrition-facts"
+  },
+  {
+    "domain": "food",
+    "name": "Coffee Quality Dataset",
+    "url": "volpatto/coffee-quality-database-from-cqi"
+  },
+  {
+    "domain": "airlines",
+    "name": "Airline Reviews",
+    "url": "juhibhojani/airline-reviews"
+  },
+  {
+    "domain": "airlines",
+    "name": "Flight Price Prediction",
+    "url": "shubhambathwal/flight-price-prediction"
+  },
+  {
+    "domain": "crypto",
+    "name": "Cryptocurrency Historical Prices",
+    "url": "sudalairajkumar/cryptocurrencypricehistory"
+  },
+  {
+    "domain": "crypto",
+    "name": "Ethereum Historical Data",
+    "url": "varpit94/ethereum-data"
+  },
+  {
+    "domain": "census",
+    "name": "Adult Census Income",
+    "url": "uciml/adult-census-income"
+  },
+  {
+    "domain": "census",
+    "name": "World Population Dataset",
+    "url": "iamsouravbanerjee/world-population-dataset"
+  },
+  {
+    "domain": "census",
+    "name": "US Census Demographic Data",
+    "url": "muonneutrino/us-census-demographic-data"
+  },
+  {
+    "domain": "manufacturing",
+    "name": "Predictive Maintenance Dataset (AI4I 2020)",
+    "url": "shivamb/machine-predictive-maintenance-classification"
+  },
+  {
+    "domain": "manufacturing",
+    "name": "Bearing Sensor Data for Predictive Maintenance",
+    "url": "vinayak123tyagi/bearing-dataset"
+  },
+  {
+    "domain": "manufacturing",
+    "name": "Steel Industry Energy Consumption",
+    "url": "csafrit2/steel-industry-energy-consumption"
+  },
+  {
+    "domain": "iot",
+    "name": "IoT Temperature Readings",
+    "url": "atulanandjha/temperature-readings-iot-devices"
+  },
+  {
+    "domain": "iot",
+    "name": "Smart Home Energy Consumption",
+    "url": "taranvee/smart-home-dataset-with-weather-information"
+  },
+  {
+    "domain": "automotive",
+    "name": "Used Car Price Prediction",
+    "url": "avikasliwal/used-cars-price-prediction"
+  },
+  {
+    "domain": "automotive",
+    "name": "Car Sales Dataset",
+    "url": "gagandeep16/car-sales"
+  },
+  {
+    "domain": "automotive",
+    "name": "Vehicle Insurance Claim Fraud Detection",
+    "url": "khusheekapoor/vehicle-insurance-fraud-detection"
+  },
+  {
+    "domain": "government",
+    "name": "US Government Spending Dataset",
+    "url": "usaspending/usaspending-fy2020"
+  },
+  {
+    "domain": "government",
+    "name": "Crime Data from 2020 to Present (LA)",
+    "url": "cityofLA/crime-data-from-2020-to-present"
+  },
+  {
+    "domain": "government",
+    "name": "World Happiness Report",
+    "url": "unsdsn/world-happiness"
+  },
+  {
+    "domain": "text-metadata",
+    "name": "Fake News Detection Dataset",
+    "url": "clmentbisaillon/fake-and-real-news-dataset"
+  },
+  {
+    "domain": "text-metadata",
+    "name": "SMS Spam Collection Dataset",
+    "url": "uciml/sms-spam-collection-dataset"
+  },
+  {
+    "domain": "text-metadata",
+    "name": "Amazon Product Reviews",
+    "url": "arhamrumi/amazon-product-reviews"
+  },
+  {
+    "domain": "text-metadata",
+    "name": "Yelp Reviews Dataset",
+    "url": "omkarsabnis/yelp-reviews-dataset"
+  },
+  {
+    "domain": "startup",
+    "name": "Startup Success Prediction",
+    "url": "manishkc06/startup-success-prediction"
+  },
+  {
+    "domain": "startup",
+    "name": "Global Unicorn Startups Dataset",
+    "url": "shivamb/company-acquisitions-7-top-companies"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: Titanic (classic ML CSV)",
+    "url": "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: Iris Dataset CSV",
+    "url": "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: Gapminder Dataset",
+    "url": "https://raw.githubusercontent.com/resbaz/r-novice-gapminder-files/master/data/gapminder-FiveYearData.csv"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: World Cities Database",
+    "url": "https://raw.githubusercontent.com/datasets/world-cities/master/data/world-cities.csv"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: COVID-19 Time Series (JHU)",
+    "url": "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: US Baby Names",
+    "url": "https://raw.githubusercontent.com/hadley/data-baby-names/master/baby-names.csv"
+  },
+  {
+    "domain": "misc-github",
+    "name": "GitHub: Penguins Dataset",
+    "url": "https://raw.githubusercontent.com/allisonhorst/palmerpenguins/main/inst/extdata/penguins.csv"
+  }
+]

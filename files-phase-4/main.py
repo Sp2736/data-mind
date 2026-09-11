@@ -2,13 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api import auth, datasets, research_questions, runs, insights, reports, ws
+from app.api import auth, datasets
 
 app = FastAPI(title="DataMind API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+    allow_origins=[settings.cors_origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -16,11 +16,6 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(datasets.router)
-app.include_router(research_questions.router)
-app.include_router(runs.router)
-app.include_router(insights.router)
-app.include_router(reports.router)
-app.include_router(ws.router)
 
 
 @app.get("/health")

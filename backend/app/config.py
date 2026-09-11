@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     groq_api_key: str | None = None
     openai_api_key: str | None = None
+    openrouter_api_key: str | None = None
     question_generator_model: str = "gemini-2.5-flash"
     code_generator_model: str = "gemini-2.5-flash"
     code_corrector_model: str = "gemini-2.5-flash"
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
     sandbox_timeout_seconds: int = 60
     sandbox_memory_limit: str = "1g"
     sandbox_cpu_limit: str = "1"
+
+    # RAG (local, Docker-free — Chroma persistent client + local embeddings)
+    rag_persist_dir: str = "../data/rag_store"
+    rag_embedding_model: str = "all-MiniLM-L6-v2"
 
     # App
     environment: str = "development"

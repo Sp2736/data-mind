@@ -35,6 +35,7 @@ class Dataset(Base):
     status: Mapped[str] = mapped_column(String, default="processing")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     primary_domain: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class DatasetProfile(Base):

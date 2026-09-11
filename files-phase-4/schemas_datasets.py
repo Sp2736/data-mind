@@ -3,10 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
-class SubmitDatasetUrlRequest(BaseModel):
-    url: str  # kaggle.com dataset/competition URL, "owner/slug" kaggle ref, or a GitHub file URL
-
-
 class DatasetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -19,7 +15,6 @@ class DatasetOut(BaseModel):
     status: str
     description: str | None = None
     primary_domain: str | None = None
-    source_url: str | None = None
     uploaded_at: datetime
 
 

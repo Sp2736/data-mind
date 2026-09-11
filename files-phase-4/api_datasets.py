@@ -1,14 +1,14 @@
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db, AsyncSessionLocal
 from app.db.models import Dataset, DatasetProfile, LocalUser
 from app.deps import get_current_user
-from app.schemas.datasets import DatasetOut, DatasetProfileOut, SubmitDatasetUrlRequest
-from app.services import dataset_fetch, profiling
+from app.schemas.datasets import DatasetOut, DatasetProfileOut
+from app.services import storage, profiling
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ async def _run_profiling(dataset_id: str) -> None:
     """Background task: profile a dataset and persist results.
 
     Uses its own DB session since the request-scoped session from the
-    submission endpoint will already be closed by the time this runs.
+    upload endpoint will already be closed by the time this runs.
     """
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
@@ -57,69 +57,39 @@ async def _run_profiling(dataset_id: str) -> None:
         await db.commit()
 
 
-async def _run_fetch_and_profile(dataset_id: str, url: str) -> None:
-    """Background task: download from the submitted URL, then profile.
-
-    Runs entirely in the background so the API responds immediately with
-    status='processing' — Kaggle downloads in particular can take a while.
-    """
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-        dataset = result.scalar_one_or_none()
-        if dataset is None:
-            logger.warning("Dataset %s disappeared before fetch could run", dataset_id)
-            return
-
-        try:
-            raw_path, size, fmt, resolved_ref = dataset_fetch.fetch_dataset(url, dataset_id)
-        except dataset_fetch.DatasetFetchError as exc:
-            logger.exception("Fetch failed for dataset %s (%s)", dataset_id, url)
-            dataset.status = "failed"
-            dataset.description = f"Download failed: {exc}"
-            await db.commit()
-            return
-
-        dataset.raw_path = raw_path
-        dataset.format = fmt
-        dataset.file_size_bytes = size
-        dataset.filename = raw_path.rsplit("/", 1)[-1]
-        dataset.source_url = resolved_ref
-        await db.commit()
-
-    await _run_profiling(dataset_id)
-
-
 @router.post("", response_model=DatasetOut, status_code=status.HTTP_201_CREATED)
-async def submit_dataset_url(
-    body: SubmitDatasetUrlRequest,
+async def upload_dataset(
     background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: LocalUser = Depends(get_current_user),
 ):
-    """Registers a dataset from a Kaggle or GitHub URL — no file upload.
-
-    Validates the URL shape synchronously (fast, no network call) so a
-    malformed URL fails immediately with a 422; the actual download and
-    profiling happen in the background.
-    """
-    try:
-        dataset_fetch.classify_url(body.url)
-    except dataset_fetch.DatasetFetchError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-
     dataset = Dataset(
         user_id=user.id,
-        filename=body.url.rsplit("/", 1)[-1] or body.url,
+        filename=file.filename or "dataset",
         format="",
         raw_path="",
         status="processing",
-        source_url=body.url,
     )
     db.add(dataset)
+    await db.flush()  # assigns dataset.id via default
+
+    try:
+        raw_path, size, fmt = await storage.save_upload(dataset.id, file)
+    except storage.UnsupportedFileTypeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc))
+    except storage.FileTooLargeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc))
+
+    dataset.raw_path = raw_path
+    dataset.format = fmt
+    dataset.file_size_bytes = size
     await db.commit()
     await db.refresh(dataset)
 
-    background_tasks.add_task(_run_fetch_and_profile, dataset.id, body.url)
+    background_tasks.add_task(_run_profiling, dataset.id)
 
     return dataset
 
