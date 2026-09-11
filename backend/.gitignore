@@ -1,4 +1,10 @@
-﻿.env
+.env
 venv/
 __pycache__/
 *.pyc
+
+# Generated data — never commit
+../data/
+*.db
+*.db-shm
+*.db-wal
