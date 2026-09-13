@@ -9,6 +9,7 @@ from app.db.models import Dataset, DatasetProfile, ResearchQuestion, LocalUser
 from app.deps import get_current_user
 from app.schemas.pipeline import ResearchQuestionOut, GenerateQuestionsRequest
 from app.agents.nodes.question_generator import generate_research_questions
+from app.agents.nodes.rq_quality_scorer import score_research_questions, filter_questions
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/datasets", tags=["research-questions"])
@@ -64,8 +65,27 @@ async def generate_questions(
         similar_past_insights=similar_past_insights,
     )
 
+    # --- Quality scoring & filtering ---
+    try:
+        scores = await score_research_questions(batch.questions, profile.schema_summary)
+        passing = filter_questions(batch.questions, scores)
+    except Exception:
+        logger.exception("Quality scoring failed — using all generated questions")
+        from app.agents.nodes.rq_quality_scorer import RQScore
+        passing = [
+            (q, RQScore(index=i, score=3, label="adequate", reason="Scoring unavailable"))
+            for i, q in enumerate(batch.questions)
+        ]
+
+    # Delete any previously generated questions for this dataset (regeneration)
+    existing = await db.execute(
+        select(ResearchQuestion).where(ResearchQuestion.dataset_id == dataset_id)
+    )
+    for old_rq in existing.scalars().all():
+        await db.delete(old_rq)
+
     rows = []
-    for i, item in enumerate(batch.questions):
+    for sort_i, (item, score) in enumerate(passing):
         rq = ResearchQuestion(
             dataset_id=dataset_id,
             category=item.category,
@@ -73,7 +93,9 @@ async def generate_questions(
             target_columns=item.target_columns,
             rationale=item.rationale,
             expected_output_type=item.expected_output_type,
-            sort_order=i,
+            sort_order=sort_i,
+            quality_score=score.score,
+            quality_label=score.label,
         )
         db.add(rq)
         rows.append(rq)
@@ -94,7 +116,10 @@ async def list_questions(
     await _get_ready_dataset(dataset_id, db, user)
     result = await db.execute(
         select(ResearchQuestion)
-        .where(ResearchQuestion.dataset_id == dataset_id)
+        .where(
+            ResearchQuestion.dataset_id == dataset_id,
+            ResearchQuestion.category != "system_profile",
+        )
         .order_by(ResearchQuestion.sort_order)
     )
     return result.scalars().all()

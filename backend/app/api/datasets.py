@@ -1,14 +1,18 @@
 import logging
+from pathlib import Path
 
+import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db, AsyncSessionLocal
-from app.db.models import Dataset, DatasetProfile, LocalUser
+from app.db.models import AnalysisRun, Dataset, DatasetProfile, ExecutionAttempt, GeneratedCode, LocalUser
 from app.deps import get_current_user
 from app.schemas.datasets import DatasetOut, DatasetProfileOut, SubmitDatasetUrlRequest
 from app.services import dataset_fetch, profiling
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +58,45 @@ async def _run_profiling(dataset_id: str) -> None:
         dp.correlation_summary = profile["correlation_summary"]
         dp.sample_rows = profile["sample_rows"]
 
+        from app.db.models import ResearchQuestion
+        # Generate the system profile research question
+        system_rq = ResearchQuestion(
+            dataset_id=dataset_id,
+            category="system_profile",
+            question_text="Generate a comprehensive multi-panel visualization summarizing the dataset's overall distributions, key correlations, and missing values. Print a brief text overview of the most critical statistical findings.",
+            rationale="Automated system profile dashboard generation.",
+            expected_output_type="chart",
+            target_columns=[],
+            quality_score=5,
+            quality_label="excellent"
+        )
+        db.add(system_rq)
+        await db.flush()
+
+        system_run = AnalysisRun(
+            dataset_id=dataset_id,
+            rq_id=system_rq.id,
+            status="queued"
+        )
+        db.add(system_run)
+        await db.flush()
+
+        dp.system_run_id = system_run.id
+
         await db.commit()
+
+        # Fire and forget the system run, keeping a strong reference to prevent GC
+        import asyncio
+        from app.api.runs import _execute_run
+        
+        task = asyncio.create_task(_execute_run(system_run.id))
+        
+        # Keep a strong reference globally
+        if not hasattr(asyncio, "_datamind_background_tasks"):
+            asyncio._datamind_background_tasks = set()
+        
+        asyncio._datamind_background_tasks.add(task)
+        task.add_done_callback(asyncio._datamind_background_tasks.discard)
 
 
 async def _run_fetch_and_profile(dataset_id: str, url: str) -> None:
@@ -171,3 +213,200 @@ async def get_dataset_profile(
             detail="Profile not yet available — dataset may still be processing",
         )
     return dp
+
+
+from app.db.models import AnalysisRun, Insight, Visualization
+from app.schemas.datasets import SystemProfileDashboardOut
+
+@router.get("/{dataset_id}/system-profile", response_model=SystemProfileDashboardOut)
+async def get_dataset_system_profile(
+    dataset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: LocalUser = Depends(get_current_user),
+):
+    ds_result = await db.execute(
+        select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user.id)
+    )
+    dataset = ds_result.scalar_one_or_none()
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+
+    profile_result = await db.execute(
+        select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
+    )
+    dp = profile_result.scalar_one_or_none()
+    if dp is None or dp.system_run_id is None:
+        return SystemProfileDashboardOut(run_status=None, insight=None, visualization=None)
+
+    run_result = await db.execute(select(AnalysisRun).where(AnalysisRun.id == dp.system_run_id))
+    run = run_result.scalar_one_or_none()
+    
+    if run is None:
+        return SystemProfileDashboardOut(run_status=None, insight=None, visualization=None)
+
+    insight_result = await db.execute(select(Insight).where(Insight.run_id == run.id))
+    insight = insight_result.scalar_one_or_none()
+
+    vis = None
+    if insight:
+        vis_result = await db.execute(select(Visualization).where(Visualization.insight_id == insight.id))
+        vis = vis_result.scalar_one_or_none()
+
+    return SystemProfileDashboardOut(
+        run_status=run.status,
+        insight=insight,
+        visualization=vis
+    )
+
+
+def _find_cleaned_csv(dataset_id: str) -> Path | None:
+    """Walk the generated_code directory for this dataset and return the most
+    recent cleaned_dataset.csv from a successful run's output directory."""
+    base = Path(settings.generated_code_dir) / dataset_id
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob("*/output/cleaned_dataset.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+@router.get("/{dataset_id}/cleaned")
+async def download_cleaned_dataset(
+    dataset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: LocalUser = Depends(get_current_user),
+):
+    """Serve the most recent cleaned_dataset.csv produced by the pipeline."""
+    ds_result = await db.execute(
+        select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user.id)
+    )
+    dataset = ds_result.scalar_one_or_none()
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+
+    cleaned = _find_cleaned_csv(dataset_id)
+    if cleaned is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No cleaned dataset found — run pre-processing questions first",
+        )
+
+    original_name = Path(dataset.raw_path).stem if dataset.raw_path else "dataset"
+    return FileResponse(
+        path=str(cleaned),
+        media_type="text/csv",
+        filename=f"{original_name}_cleaned.csv",
+    )
+
+
+@router.get("/{dataset_id}/comparison")
+async def get_dataset_comparison(
+    dataset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: LocalUser = Depends(get_current_user),
+):
+    """Return before/after cleaning statistics for the dataset.
+
+    Compares the original profiled stats (from DatasetProfile) with the
+    most recent cleaned_dataset.csv produced by the pipeline.
+    """
+    ds_result = await db.execute(
+        select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user.id)
+    )
+    dataset = ds_result.scalar_one_or_none()
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+
+    profile_result = await db.execute(
+        select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+
+    cleaned = _find_cleaned_csv(dataset_id)
+    if cleaned is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No cleaned dataset found — run pre-processing questions first",
+        )
+
+    try:
+        cleaned_df = pd.read_csv(cleaned)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read cleaned dataset: {exc}",
+        )
+
+    original_rows = dataset.row_count
+    cleaned_rows = len(cleaned_df)
+    original_cols = dataset.column_count
+
+    # Per-column null comparison
+    column_comparison = []
+    for col_info in profile.schema_summary:
+        col = col_info.get("column", "")          # profiler uses 'column'
+        original_nulls = col_info.get("null_count", 0)
+        if col in cleaned_df.columns:
+            cleaned_nulls = int(cleaned_df[col].isna().sum())
+            cleaned_null_pct = round(cleaned_nulls / len(cleaned_df) * 100, 2) if len(cleaned_df) > 0 else 0
+        else:
+            cleaned_nulls = None
+            cleaned_null_pct = None
+
+        column_comparison.append({
+            "column": col,
+            "data_type": col_info.get("dtype", ""),   # profiler uses 'dtype'
+            "original_null_count": original_nulls,
+            "original_null_pct": col_info.get("null_pct", 0),  # profiler uses 'null_pct'
+            "cleaned_null_count": cleaned_nulls,
+            "cleaned_null_pct": cleaned_null_pct,
+            "improved": cleaned_nulls is not None and cleaned_nulls < original_nulls,
+        })
+
+    return {
+        "dataset_id": dataset_id,
+        "original": {
+            "row_count": original_rows,
+            "column_count": original_cols,
+        },
+        "cleaned": {
+            "row_count": cleaned_rows,
+            "column_count": len(cleaned_df.columns),
+        },
+        "rows_added": max(cleaned_rows - original_rows, 0),
+        "column_comparison": column_comparison,
+    }
+
+
+import shutil
+
+@router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_dataset(
+    dataset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: LocalUser = Depends(get_current_user),
+):
+    """Delete a dataset and all associated records/files."""
+    result = await db.execute(
+        select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user.id)
+    )
+    dataset = result.scalar_one_or_none()
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+
+    # Delete physical raw file
+    raw_file = Path(settings.datasets_raw_dir) / dataset.filename
+    if raw_file.exists():
+        raw_file.unlink()
+
+    # Delete pipeline generated files (code, charts, cleaned datasets)
+    run_dir = Path(settings.generated_code_dir) / dataset_id
+    if run_dir.exists() and run_dir.is_dir():
+        shutil.rmtree(run_dir)
+
+    # Delete from database. Since PRAGMA foreign_keys=ON is enabled in aiosqlite,
+    # this will cascade delete DatasetProfile, ResearchQuestion, AnalysisRun, Insight, etc.
+    await db.delete(dataset)
+    await db.commit()
+    return None
