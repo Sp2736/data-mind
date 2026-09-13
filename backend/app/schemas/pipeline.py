@@ -15,6 +15,8 @@ class ResearchQuestionOut(BaseModel):
     expected_output_type: str
     status: str
     sort_order: int
+    quality_score: int = 3
+    quality_label: str | None = None
     created_at: datetime
 
 

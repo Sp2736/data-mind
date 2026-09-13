@@ -27,8 +27,17 @@ class DatasetProfileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     dataset_id: str
+    system_run_id: str | None = None
     schema_summary: list
     stats_summary: list
     correlation_summary: list
     sample_rows: list
     created_at: datetime
+
+
+from app.schemas.pipeline import InsightOut, VisualizationOut
+
+class SystemProfileDashboardOut(BaseModel):
+    run_status: str | None = None
+    insight: InsightOut | None = None
+    visualization: VisualizationOut | None = None
