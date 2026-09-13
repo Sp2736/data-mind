@@ -99,20 +99,40 @@ def fetch_dataset(url: str, dataset_id: str) -> tuple[str, int, str, str]:
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     if kind in ("kaggle_dataset", "kaggle_competition", "kaggle_ref"):
+        import os
+
+        ref = _kaggle_ref_from_url(url, kind)
+        download_dir = dest_dir / "_kaggle_download"
+        download_dir.mkdir(parents=True, exist_ok=True)
+
+        # Try new access-token format first (KAGGLE_API_TOKEN=KGAT_...)
+        # The newer kaggle package (≥1.6) reads this env var automatically.
+        # For the old package we inject it as username/key using a dummy username
+        # so authenticate() succeeds.
+        kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
+        if kaggle_token.startswith("KGAT_"):
+            # New token format — set env vars the kaggle library checks
+            os.environ.setdefault("KAGGLE_USERNAME", "token_auth")
+            os.environ.setdefault("KAGGLE_KEY", kaggle_token)
+
         try:
             from kaggle.api.kaggle_api_extended import KaggleApi
-        except Exception as exc:  # kaggle.json missing/invalid raises here too
+        except Exception as exc:
             raise DatasetFetchError(
                 "Kaggle API not configured. Place your API token at "
                 "~/.kaggle/kaggle.json (see DATABASE_AND_DATASETS.md)."
             ) from exc
 
-        ref = _kaggle_ref_from_url(url, kind)
         api = KaggleApi()
-        api.authenticate()
+        try:
+            api.authenticate()
+        except Exception as exc:
+            raise DatasetFetchError(
+                f"Kaggle authentication failed: {exc}. "
+                "Ensure KAGGLE_API_TOKEN is set in backend/.env or "
+                "~/.kaggle/kaggle.json exists."
+            ) from exc
 
-        download_dir = dest_dir / "_kaggle_download"
-        download_dir.mkdir(parents=True, exist_ok=True)
         try:
             if kind == "kaggle_competition":
                 api.competition_download_files(ref, path=str(download_dir), quiet=True)
