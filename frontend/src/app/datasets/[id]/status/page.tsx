@@ -1,289 +1,251 @@
 "use client";
 
-import React, { use, useState, useEffect, useRef } from "react";
+import React, { use, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
-import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
-import { Badge } from "@/components/ui/Badge";
-import { getDatasetById } from "@/lib/mock/datasets";
-import { getResearchQuestions, ResearchQuestion } from "@/lib/mock/researchQuestions";
+import { getDataset, listRuns, listQuestions, ApiAnalysisRun, ApiResearchQuestion } from "@/lib/api/datasets";
 import {
   ArrowLeft,
   ChevronRight,
-  Play,
   CheckCircle2,
   Clock,
-  AlertCircle,
   Terminal,
   Activity,
   ArrowRight,
   RotateCw,
   Sliders,
-  Database,
-  Search
+  XCircle,
+  Loader2,
 } from "lucide-react";
 
-interface JobState {
-  id: string;
-  question_text: string;
-  category: 'pre-processing' | 'eda';
-  status: 'queued' | 'running' | 'retrying' | 'completed' | 'failed';
-  attempts: number;
-  error_traceback?: string;
+const STORAGE_KEY_TOKEN = "datamind_auth_token";
+const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
+
+type RunStatus = ApiAnalysisRun["status"];
+
+interface EnrichedRun extends ApiAnalysisRun {
+  question_text?: string;
+  category?: "pre-processing" | "eda";
+}
+
+function statusIcon(s: RunStatus) {
+  switch (s) {
+    case "completed": return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+    case "failed": return <XCircle className="w-3.5 h-3.5 text-rose-500" />;
+    case "running": return <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />;
+    default: return <Clock className="w-3.5 h-3.5 text-stone-400" />;
+  }
 }
 
 export default function JobStatusPage({ params }: { params: Promise<{ id: string }> }) {
-  const router = useRouter();
   const resolvedParams = use(params);
   const datasetId = resolvedParams.id;
-  const dataset = getDatasetById(datasetId);
 
-  // Load questions
-  const allQuestions = getResearchQuestions(datasetId, dataset?.filename);
-  
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<JobState[]>([]);
-  const [activeJobIndex, setActiveJobIndex] = useState<number>(-1);
+  const [datasetName, setDatasetName] = useState<string>("");
+  const [runs, setRuns] = useState<EnrichedRun[]>([]);
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
-  const [isConsoleExpanded, setIsConsoleExpanded] = useState<boolean>(true);
-  const [isPipelineFinished, setIsPipelineFinished] = useState<boolean>(false);
-  
-  const logTerminalEndRef = useRef<HTMLDivElement>(null);
+  const [isConsoleExpanded, setIsConsoleExpanded] = useState(true);
+  const [isPipelineFinished, setIsPipelineFinished] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // 1. Initialise selected questions from sessionStorage (fall back to all if none selected)
-  useEffect(() => {
-    let ids: string[] = [];
-    if (typeof window !== "undefined") {
-      const stored = sessionStorage.getItem(`datamind_selected_rqs_${datasetId}`);
-      if (stored) {
-        try {
-          ids = JSON.parse(stored);
-        } catch (e) {
-          console.warn("Failed to parse selected RQs:", e);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch enriched runs (with question text attached)
+  const fetchRuns = useCallback(async () => {
+    try {
+      const [rawRuns, questions] = await Promise.all([
+        listRuns(datasetId),
+        listQuestions(datasetId).catch(() => [] as ApiResearchQuestion[]),
+      ]);
+
+      const qMap = Object.fromEntries(questions.map(q => [q.id, q]));
+
+      // Filter to selected RQ IDs from sessionStorage if available
+      let selectedIds: string[] = [];
+      if (typeof window !== "undefined") {
+        const stored = sessionStorage.getItem(`datamind_selected_rqs_${datasetId}`);
+        if (stored) {
+          try { selectedIds = JSON.parse(stored); } catch { /* ignore */ }
         }
       }
-    }
-    
-    if (ids.length === 0) {
-      ids = allQuestions.map(q => q.id);
-    }
-    
-    setSelectedIds(ids);
-    
-    const initialJobs: JobState[] = allQuestions
-      .filter(q => ids.includes(q.id))
-      .map(q => ({
-        id: q.id,
-        question_text: q.question_text,
-        category: q.category,
-        status: 'queued',
-        attempts: 1
+
+      const filtered = selectedIds.length > 0
+        ? rawRuns.filter(r => selectedIds.includes(r.rq_id))
+        : rawRuns;
+
+      const enriched: EnrichedRun[] = filtered.map(r => ({
+        ...r,
+        question_text: qMap[r.rq_id]?.question_text,
+        category: qMap[r.rq_id]?.category as "pre-processing" | "eda",
       }));
-      
-    setJobs(initialJobs);
-    
-    if (initialJobs.length > 0) {
-      setActiveJobIndex(0);
-      setConsoleLogs([
-        `[pipeline] [${new Date().toLocaleTimeString()}] DataMind Autonomous Execution Sandbox initialized.`,
-        `[pipeline] Target Dataset: ${dataset?.filename || datasetId}`,
-        `[pipeline] Loaded ${initialJobs.length} analysis pipeline tasks.`,
-        `[pipeline] Starting batch runner...`
-      ]);
+
+      setRuns(enriched);
+
+      const allDone = enriched.length > 0 && enriched.every(r => r.status === "completed" || r.status === "failed");
+      if (allDone) {
+        setIsPipelineFinished(true);
+        addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`);
+      }
+    } catch {
+      /* silent — WS events will fill the gap */
     }
   }, [datasetId]);
 
-  // 2. Autoscroll console logs to bottom
+  const ts = () => new Date().toLocaleTimeString();
+
+  const addLog = (msg: string) => {
+    setConsoleLogs(prev => [...prev, msg]);
+  };
+
+  // Auto-scroll console
   useEffect(() => {
-    if (logTerminalEndRef.current) {
-      logTerminalEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [consoleLogs]);
 
-  // 3. Simulated Execution Timing Loops
+  // Initial data load
   useEffect(() => {
-    if (activeJobIndex === -1 || activeJobIndex >= jobs.length || isPipelineFinished) return;
-    
-    const activeJob = jobs[activeJobIndex];
-    let step = 0;
-    
-    // Set active job to 'running'
-    setJobs(prev => prev.map((j, idx) => idx === activeJobIndex ? { ...j, status: 'running' } : j));
-    
-    const intervalTime = 400; // Log print interval
-    const logsTimer = setInterval(() => {
-      const timeStr = new Date().toLocaleTimeString();
-      
-      // Question-specific log scripts
-      if (activeJob.category === 'pre-processing') {
-        // PRE-PROCESSING SIMULATION LOGS
-        // We simulate a failure and retry on the first pre-processing question to demonstrate the self-correcting retry loop!
-        const isRetryTarget = activeJobIndex === 0; 
-        
-        if (isRetryTarget) {
-          switch (step) {
-            case 0:
-              setConsoleLogs(prev => [...prev, `[task-${activeJobIndex + 1}] [${timeStr}] Initializing Pre-processing Clean node: "${activeJob.question_text}"`]);
-              break;
-            case 1:
-              setConsoleLogs(prev => [...prev, `[sandbox] Spinning up isolated python-runner environment...`]);
-              break;
-            case 2:
-              setConsoleLogs(prev => [...prev, `[sandbox] Loading pandas dataframes for targets: [${activeJob.id.includes('churn') ? 'tenure_months, monthly_charges' : 'nps_score, expansion_revenue_usd'}]`]);
-              break;
-            case 3:
-              setConsoleLogs(prev => [...prev, `[coder] Generating column alignment script...`]);
-              break;
-            case 4:
-              // Simulate syntax error
-              setConsoleLogs(prev => [
-                ...prev, 
-                `[sandbox] Executing cleanup code...`,
-                `[error] Traceback (most recent call last):`,
-                `[error]   File "<sandbox_main.py>", line 14, in <module>`,
-                `[error]     df_clean['tenure_months'].fillna(df['tenure_months'].medan(), inplace=True)`,
-                `[error] AttributeError: 'Series' object has no attribute 'medan'. Did you mean: 'median'?`
-              ]);
-              // Trigger retry status
-              setJobs(prev => prev.map((j, idx) => idx === activeJobIndex ? { ...j, status: 'retrying', attempts: 2 } : j));
-              break;
-            case 5:
-              setConsoleLogs(prev => [
-                ...prev,
-                `[pipeline] Warning: Task failed. Coder Agent invoking self-correction loop...`,
-                `[coder] Analyzing traceback error on line 14. Identified typo: '.medan()' should be '.median()'.`,
-                `[coder] Correcting execution script...`
-              ]);
-              break;
-            case 6:
-              setConsoleLogs(prev => [
-                ...prev,
-                `[pipeline] Retrying task execution (Attempt 2)...`,
-                `[sandbox] Reloading sandbox variables...`,
-                `[sandbox] Executing corrected script...`
-              ]);
-              // Reset status to running
-              setJobs(prev => prev.map((j, idx) => idx === activeJobIndex ? { ...j, status: 'running' } : j));
-              break;
-            case 7:
-              setConsoleLogs(prev => [
-                ...prev,
-                `[sandbox] Imputation completed successfully. Null count in target columns: 0.`,
-                `[sandbox] Running validation tests...`,
-                `[sandbox] Check-01: Null checks passed.`,
-                `[sandbox] Check-02: Variance matches control bounds. Passed.`
-              ]);
-              break;
-            case 8:
-              setConsoleLogs(prev => [...prev, `[task-${activeJobIndex + 1}] [${timeStr}] Pre-processing clean node completed successfully.`]);
-              setJobs(prev => prev.map((j, idx) => idx === activeJobIndex ? { ...j, status: 'completed' } : j));
-              clearInterval(logsTimer);
-              
-              // Proceed to next job
-              setTimeout(() => {
-                if (activeJobIndex + 1 < jobs.length) {
-                  setActiveJobIndex(prev => prev + 1);
-                } else {
+    let isMounted = true;
+    const init = async () => {
+      try {
+        const ds = await getDataset(datasetId);
+        if (isMounted) setDatasetName(ds.filename);
+      } catch { /* ignore */ }
+
+      await fetchRuns();
+      if (isMounted) setIsLoading(false);
+    };
+    init();
+    return () => { isMounted = false; };
+  }, [datasetId, fetchRuns]);
+
+  // WebSocket connection
+  useEffect(() => {
+    const token = typeof window !== "undefined"
+      ? localStorage.getItem(STORAGE_KEY_TOKEN) ?? sessionStorage.getItem(STORAGE_KEY_TOKEN)
+      : null;
+
+    const ws = new WebSocket(`${WS_BASE}/ws/datasets/${datasetId}/status${token ? `?token=${token}` : ""}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      addLog(`[pipeline] [${ts()}] WebSocket connected — live run updates active.`);
+    };
+
+    ws.onmessage = (evt) => {
+      try {
+        const event = JSON.parse(evt.data);
+        // Backend publishes with "type" key (not "event")
+        const evtType = event.type ?? event.event;
+        const { run_id, status, attempt, error_traceback } = event;
+
+        switch (evtType) {
+          case "run_update":
+          case "run_started":
+            addLog(`[task] [${ts()}] Run ${run_id?.slice(-6)} → ${status ?? "updated"}${attempt ? ` (attempt ${attempt})` : ""}`);
+            if (status) {
+              setRuns(prev => {
+                const updated = prev.map(r => r.id === run_id ? { ...r, status: status as RunStatus, attempts: attempt ?? r.attempts } : r);
+                const allDone = updated.length > 0 && updated.every(r => r.status === "completed" || r.status === "failed");
+                if (allDone) {
                   setIsPipelineFinished(true);
-                  setConsoleLogs(prev => [...prev, `[pipeline] [${new Date().toLocaleTimeString()}] Batch processing completed successfully. All pipelines verified.`]);
+                  setTimeout(() => addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`), 100);
                 }
-              }, 400);
-              break;
-          }
-        } else {
-          // Standard Pre-processing task log
-          switch (step) {
-            case 0:
-              setConsoleLogs(prev => [...prev, `[task-${activeJobIndex + 1}] [${timeStr}] Initializing Pre-processing Clean node: "${activeJob.question_text}"`]);
-              break;
-            case 1:
-              setConsoleLogs(prev => [...prev, `[sandbox] Spinning up python-runner environment...`]);
-              break;
-            case 2:
-              setConsoleLogs(prev => [...prev, `[sandbox] Running string standardization mapper...`]);
-              break;
-            case 3:
-              setConsoleLogs(prev => [...prev, `[sandbox] Alignment completed. Dimensions verified.`]);
-              break;
-            case 4:
-              setConsoleLogs(prev => [...prev, `[task-${activeJobIndex + 1}] [${timeStr}] Task completed.`]);
-              setJobs(prev => prev.map((j, idx) => idx === activeJobIndex ? { ...j, status: 'completed' } : j));
-              clearInterval(logsTimer);
-              
-              setTimeout(() => {
-                if (activeJobIndex + 1 < jobs.length) {
-                  setActiveJobIndex(prev => prev + 1);
-                } else {
-                  setIsPipelineFinished(true);
-                  setConsoleLogs(prev => [...prev, `[pipeline] [${new Date().toLocaleTimeString()}] Batch processing completed successfully. All pipelines verified.`]);
-                }
-              }, 400);
-              break;
-          }
-        }
-      } else {
-        // EDA SIMULATION LOGS
-        switch (step) {
-          case 0:
-            setConsoleLogs(prev => [...prev, `[task-${activeJobIndex + 1}] [${timeStr}] Launching EDA analysis node: "${activeJob.question_text}"`]);
+                return updated;
+              });
+            }
             break;
-          case 1:
-            setConsoleLogs(prev => [...prev, `[sandbox] Loading mathematical frameworks (numpy, statsmodels)...`]);
-            break;
-          case 2:
-            setConsoleLogs(prev => [...prev, `[coder] Executing correlation analysis and grouping scripts...`]);
-            break;
-          case 3:
-            setConsoleLogs(prev => [...prev, `[analyst] Computing cross-tabulations and category metrics...`]);
-            break;
-          case 4:
-            setConsoleLogs(prev => [...prev, `[analyst] Chart config selected: "${activeJob.id.includes('06') ? 'Pie' : activeJob.id.includes('05') ? 'Scatter' : 'Bar'}". Mapping SVG values...`]);
-            break;
-          case 5:
-            setConsoleLogs(prev => [...prev, `[task-${activeJobIndex + 1}] [${timeStr}] EDA Analysis complete. Insight registered.`]);
-            setJobs(prev => prev.map((j, idx) => idx === activeJobIndex ? { ...j, status: 'completed' } : j));
-            clearInterval(logsTimer);
-            
-            setTimeout(() => {
-              if (activeJobIndex + 1 < jobs.length) {
-                setActiveJobIndex(prev => prev + 1);
-              } else {
+
+          case "run_completed":
+            addLog(`[pipeline] [${ts()}] ✓ Run ${run_id?.slice(-6)} completed successfully.`);
+            setRuns(prev => {
+              const updated = prev.map(r => r.id === run_id ? { ...r, status: "completed" as RunStatus } : r);
+              const allDone = updated.length > 0 && updated.every(r => r.status === "completed" || r.status === "failed");
+              if (allDone) {
                 setIsPipelineFinished(true);
-                setConsoleLogs(prev => [...prev, `[pipeline] [${new Date().toLocaleTimeString()}] Batch processing completed successfully. All pipelines verified.`]);
+                setTimeout(() => addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`), 100);
               }
-            }, 400);
+              return updated;
+            });
+            break;
+
+          case "run_failed":
+            addLog(`[error] [${ts()}] Run ${run_id?.slice(-6)} FAILED${error_traceback ? `: ${error_traceback.split("\n")[0]}` : "."}`);
+            setRuns(prev => {
+              const updated = prev.map(r => r.id === run_id ? { ...r, status: "failed" as RunStatus, error_traceback } : r);
+              const allDone = updated.length > 0 && updated.every(r => r.status === "completed" || r.status === "failed");
+              if (allDone) {
+                setIsPipelineFinished(true);
+                setTimeout(() => addLog(`[pipeline] [${ts()}] All runs finished (some failed). Check results.`), 100);
+              }
+              return updated;
+            });
+            break;
+
+          case "code_generated":
+            addLog(`[coder] [${ts()}] Code generated for run ${run_id?.slice(-6)}.`);
+            break;
+
+          case "sandbox_output":
+            addLog(`[sandbox] ${event.stdout ?? ""}`);
+            break;
+
+          case "correction_triggered":
+            addLog(`[coder] [${ts()}] Self-correction triggered (attempt ${attempt})…`);
+            setRuns(prev => prev.map(r => r.id === run_id ? { ...r, status: "running" as RunStatus, attempts: attempt ?? r.attempts } : r));
+            break;
+
+          case "insight_written":
+            addLog(`[analyst] [${ts()}] Insight written for run ${run_id?.slice(-6)}.`);
+            break;
+
+          default:
+            if (event.message) addLog(`[ws] ${event.message}`);
             break;
         }
+      } catch {
+        /* ignore malformed WS messages */
       }
-      
-      step++;
-    }, intervalTime);
+    };
 
-    return () => clearInterval(logsTimer);
-  }, [activeJobIndex, jobs.length, isPipelineFinished]);
+    ws.onclose = () => {
+      addLog(`[pipeline] [${ts()}] WebSocket disconnected.`);
+      // Fall back to polling
+      const poll = () => {
+        fetchRuns();
+        pollRef.current = setTimeout(poll, 5000);
+      };
+      pollRef.current = setTimeout(poll, 5000);
+    };
 
-  // Calculations
-  const completedJobsCount = jobs.filter(j => j.status === 'completed').length;
-  const progressPercent = jobs.length > 0 ? Math.floor((completedJobsCount / jobs.length) * 100) : 0;
-  
+    ws.onerror = () => {
+      addLog(`[error] [${ts()}] WebSocket error — falling back to polling.`);
+    };
+
+    return () => {
+      ws.close();
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, [datasetId, fetchRuns]);
+
+  const completedCount = runs.filter(r => r.status === "completed").length;
+  const failedCount = runs.filter(r => r.status === "failed").length;
+  const progressPercent = runs.length > 0 ? Math.floor(((completedCount + failedCount) / runs.length) * 100) : 0;
+
   return (
     <AuthGuard>
       <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
         <Header />
 
-        {/* Stage Progression Tracker */}
+        {/* Stage breadcrumb */}
         <div className="border-b border-stone-200/60 dark:border-stone-800/80 bg-white/70 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between overflow-x-auto gap-4">
-            <Link
-              href={`/datasets/${datasetId}/rqs`}
-              className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200 transition-colors shrink-0"
-            >
+            <Link href={`/datasets/${datasetId}/rqs`} className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200 transition-colors shrink-0">
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Selection</span>
+              Back to Selection
             </Link>
-            
             <div className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-xs text-stone-400 shrink-0">
               <Link href={`/datasets/${datasetId}`} className="hover:text-stone-600 dark:hover:text-stone-300">1. Data Profile</Link>
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
@@ -293,14 +255,13 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
               <span className="cursor-not-allowed">4. Analysis Insights</span>
             </div>
-            
             <div className="w-10 sm:w-20 shrink-0" />
           </div>
         </div>
 
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
-          
-          {/* Header Progress Indicators */}
+
+          {/* Header progress card */}
           <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -308,16 +269,22 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
                   <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400 animate-pulse shrink-0" />
                   <span>Sandbox Code Execution</span>
                 </h1>
-                <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400">
-                  Executing python compiler sequences on <code className="bg-stone-50 dark:bg-stone-900 px-1.5 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-semibold">{dataset?.filename}</code> fields.
+                <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-0.5">
+                  Executing autonomous pipeline on{" "}
+                  <code className="bg-stone-50 dark:bg-stone-900 px-1.5 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-semibold">
+                    {datasetName || datasetId}
+                  </code>
                 </p>
               </div>
-
-              {/* Progress counter */}
               <div className="text-right shrink-0">
                 <span className="text-sm font-extrabold text-stone-900 dark:text-stone-100">
-                  {completedJobsCount} of {jobs.length} completed
+                  {completedCount} of {runs.length} completed
                 </span>
+                {failedCount > 0 && (
+                  <span className="text-xs text-rose-500 font-semibold block">
+                    {failedCount} failed
+                  </span>
+                )}
                 <span className="text-xs text-stone-400 block font-medium">Pipeline Progression</span>
               </div>
             </div>
@@ -325,92 +292,89 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
             {/* Progress bar */}
             <div>
               <div className="w-full h-3 bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden mb-1">
-                <div 
-                  className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 transition-all duration-300 ease-out rounded-full"
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 transition-all duration-500 ease-out rounded-full"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
               <div className="flex justify-between text-[11px] text-stone-400 font-medium">
                 <span>{progressPercent}% completed</span>
-                <span>Self-Correction Retry Cap: 3</span>
+                <span>Self-Correction Retry Cap: {runs[0]?.max_attempts ?? 3}</span>
               </div>
             </div>
           </div>
 
-          {/* Grid Layout: Task List and Logger */}
+          {/* Main grid: task list + console */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            
-            {/* Task list cards (Spans 1/3) */}
-            <div className="lg:col-span-1 flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-1">
-              <h3 className="text-xs uppercase tracking-wider font-extrabold text-stone-400 mb-1 flex items-center gap-1.5 pl-2">
-                <Sliders className="w-3.5 h-3.5 text-stone-400" />
-                <span>Sandbox Processes</span>
+
+            {/* Task list */}
+            <div className="lg:col-span-1 flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1">
+              <h3 className="text-xs uppercase tracking-wider font-extrabold text-stone-400 flex items-center gap-1.5 pl-2">
+                <Sliders className="w-3.5 h-3.5" />
+                Sandbox Processes
               </h3>
-              
-              {jobs.map((job, idx) => {
-                const isActive = idx === activeJobIndex;
-                const isQueued = job.status === 'queued';
-                const isRunning = job.status === 'running';
-                const isRetrying = job.status === 'retrying';
-                const isComplete = job.status === 'completed';
+
+              {isLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+                </div>
+              ) : runs.map((run) => {
+                const isRunning = run.status === "running";
+                const isComplete = run.status === "completed";
+                const isFailed = run.status === "failed";
+                const isPre = run.category === "pre-processing";
 
                 return (
                   <div
-                    key={job.id}
+                    key={run.id}
                     className={`rounded-2xl border p-4 transition-all duration-200 bg-white dark:bg-[#191921] ${
-                      isActive
-                        ? "border-indigo-400 dark:border-indigo-700/80 shadow-sm"
-                        : isComplete
-                        ? "border-stone-200/50 dark:border-stone-850 opacity-90"
-                        : "border-stone-200/80 dark:border-stone-800 opacity-60"
+                      isRunning ? "border-indigo-400 dark:border-indigo-700/80 shadow-sm"
+                      : isFailed ? "border-rose-200 dark:border-rose-800/40 opacity-80"
+                      : isComplete ? "border-stone-200/50 dark:border-stone-850 opacity-90"
+                      : "border-stone-200/80 dark:border-stone-800 opacity-60"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
-                        job.category === 'pre-processing'
+                        isPre
                           ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300"
                           : "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300"
                       }`}>
-                        {job.category}
+                        {run.category ?? "analysis"}
                       </span>
 
-                      {/* Status Badges */}
-                      {isComplete && (
-                        <Badge variant="success" icon={<CheckCircle2 className="w-3 h-3" />}>
-                          complete
-                        </Badge>
-                      )}
-                      {isRunning && (
-                        <Badge variant="warning" icon={<Clock className="w-3 h-3 animate-spin" />}>
-                          running
-                        </Badge>
-                      )}
-                      {isRetrying && (
-                        <Badge variant="warning" className="bg-amber-50 dark:bg-amber-950/60 border-amber-200 text-amber-600 dark:text-amber-400" icon={<RotateCw className="w-3 h-3 animate-spin" />}>
-                          retry {job.attempts}
-                        </Badge>
-                      )}
-                      {isQueued && (
-                        <Badge variant="neutral">
-                          queued
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-1">
+                        {statusIcon(run.status)}
+                        <span className="text-[9px] font-bold text-stone-500 dark:text-stone-400 uppercase">
+                          {run.status}
+                        </span>
+                        {run.attempts > 1 && (
+                          <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold">
+                            <RotateCw className="w-2.5 h-2.5" />
+                            {run.attempts}
+                          </span>
+                        )}
+                      </div>
                     </div>
-
                     <h4 className="text-xs font-bold text-stone-850 dark:text-stone-100 leading-snug line-clamp-2">
-                      {job.question_text}
+                      {run.question_text ?? `Run ${run.id.slice(-8)}`}
                     </h4>
+                    {isFailed && run.error_traceback && (
+                      <p className="text-[9px] text-rose-500 mt-1.5 leading-tight line-clamp-2 font-mono">
+                        {run.error_traceback.split("\n").slice(-2).join(" ")}
+                      </p>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Expandable Console Logger (Spans 2/3) */}
+            {/* Console logger */}
             <div className="lg:col-span-2 flex flex-col gap-3">
               <div className="flex items-center justify-between pl-2">
                 <h3 className="text-xs uppercase tracking-wider font-extrabold text-stone-400 flex items-center gap-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-stone-400" />
-                  <span>Sandbox Log Output</span>
+                  <Terminal className="w-3.5 h-3.5" />
+                  Sandbox Log Output
                 </h3>
                 <button
                   onClick={() => setIsConsoleExpanded(!isConsoleExpanded)}
@@ -421,45 +385,43 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
               </div>
 
               {isConsoleExpanded && (
-                <div className="bg-white-30/10 dark:bg-[#121215] border border-stone-800 rounded-3xl p-4 sm:p-5 shadow-inner flex flex-col font-mono text-[11px] h-[360px] overflow-hidden relative">
-                  
-                  {/* Console header lights */}
+                <div className="dark:bg-[#121215] bg-stone-950 border border-stone-800 rounded-3xl p-4 sm:p-5 shadow-inner flex flex-col font-mono text-[11px] h-[380px] overflow-hidden">
                   <div className="flex items-center justify-between pb-3 border-b border-stone-800 mb-3 text-[10px] text-stone-500 font-bold">
                     <div className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                     </div>
-                    <span>TERMINAL LOGS: SANDBOX</span>
-                    <span>ACTIVE</span>
+                    <span>TERMINAL — SANDBOX LOG</span>
+                    <span className={isPipelineFinished ? "text-emerald-400" : "text-indigo-400 animate-pulse"}>
+                      {isPipelineFinished ? "DONE" : "ACTIVE"}
+                    </span>
                   </div>
 
-                  {/* Autoscrolling Log Statements */}
-                  <div className="flex-1 overflow-y-auto space-y-1.5 text-stone-300 pr-1 scrollbar-thin select-text">
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin select-text">
                     {consoleLogs.map((log, idx) => {
-                      let colorClass   = "text-stone-400";
-                      if (log.includes("[error]")) colorClass = "text-rose-400 font-semibold";
-                      else if (log.includes("[pipeline] Warning:")) colorClass = "text-amber-400 font-semibold";
-                      else if (log.includes("[pipeline]")) colorClass = "text-indigo-400";
-                      else if (log.includes("[sandbox]")) colorClass = "text-stone-400";
-                      else if (log.includes("[coder]")) colorClass = "text-purple-400";
-                      else if (log.includes("[analyst]")) colorClass = "text-sky-400";
+                      let cls = "text-stone-400";
+                      if (log.startsWith("[error]")) cls = "text-rose-400 font-semibold";
+                      else if (log.startsWith("[pipeline] Warning")) cls = "text-amber-400 font-semibold";
+                      else if (log.startsWith("[pipeline]")) cls = "text-indigo-400";
+                      else if (log.startsWith("[sandbox]")) cls = "text-stone-400";
+                      else if (log.startsWith("[coder]")) cls = "text-purple-400";
+                      else if (log.startsWith("[analyst]")) cls = "text-sky-400";
+                      else if (log.startsWith("[task]")) cls = "text-stone-300";
+                      else if (log.startsWith("[ws]")) cls = "text-stone-500 italic";
 
                       return (
-                        <div key={idx} className={`${colorClass} leading-relaxed break-all`}>
-                          {log}
-                        </div>
+                        <div key={idx} className={`${cls} leading-relaxed break-all`}>{log}</div>
                       );
                     })}
-                    <div ref={logTerminalEndRef} />
+                    <div ref={logEndRef} />
                   </div>
                 </div>
               )}
             </div>
-
           </div>
 
-          {/* Success / Redirection Card once complete */}
+          {/* Completion CTA */}
           {isPipelineFinished && (
             <div className="mt-4 p-6 sm:p-8 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/25 dark:border-emerald-500/15 rounded-3xl animate-fade-in flex flex-col sm:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
@@ -468,10 +430,12 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-stone-900 dark:text-white">
-                    Autonomous Execution Completed Successfully!
+                    Pipeline Completed!
                   </h3>
                   <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 mt-0.5 leading-relaxed">
-                    DataMind has cleaned the columns, performed statistics profiling, generated narrative answers, and mapped all requested charts in the pastel visualization suite.
+                    {completedCount} run{completedCount !== 1 ? "s" : ""} succeeded
+                    {failedCount > 0 ? `, ${failedCount} failed` : ""}.
+                    Insights and cleaned dataset are ready.
                   </p>
                 </div>
               </div>

@@ -7,7 +7,7 @@ import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
 import { Dataset, getStoredDatasets } from "@/lib/mock/datasets";
-import { listDatasets as apiListDatasets } from "@/lib/api/datasets";
+import { listDatasets as apiListDatasets, deleteDataset } from "@/lib/api/datasets";
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -21,12 +21,14 @@ import {
   Clock,
   ChevronRight,
   TrendingUp,
-  Search
+  Search,
+  Trash2
 } from "lucide-react";
 
 export default function HomePage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -64,6 +66,22 @@ export default function HomePage() {
       isMounted = false;
     };
   }, []);
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this dataset? All associated runs, data, and profiles will be permanently removed.")) {
+      return;
+    }
+    setIsDeleting(id);
+    try {
+      await deleteDataset(id);
+      setDatasets((prev) => prev.filter((ds) => ds.id !== id));
+    } catch (err) {
+      console.error("Failed to delete dataset:", err);
+      alert("Failed to delete dataset. Please try again.");
+    } finally {
+      setIsDeleting(null);
+    }
+  };
 
   const filteredDatasets = datasets.filter((ds) =>
     ds.filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -194,7 +212,7 @@ export default function HomePage() {
 
             {/* Dataset Cards */}
             {filteredDatasets.map((ds) => (
-              <BentoCard key={ds.id} colSpan="col-span-1 md:col-span-2 lg:col-span-2" className="flex flex-col justify-between hover:border-blue-200 dark:hover:border-indigo-800/80">
+              <BentoCard key={ds.id} colSpan="col-span-1 md:col-span-2 lg:col-span-2" className="flex flex-col justify-between hover:border-blue-200 dark:hover:border-indigo-800/80 group">
                 <div>
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-3">
@@ -215,24 +233,38 @@ export default function HomePage() {
                       </div>
                     </div>
 
-                    <Badge
-                      variant={
-                        ds.status === "ready"
-                          ? "success"
-                          : ds.status === "processing"
-                          ? "warning"
-                          : "error"
-                      }
-                      icon={
-                        ds.status === "ready" ? (
-                          <CheckCircle2 className="w-3 h-3" />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDelete(ds.id)}
+                        disabled={isDeleting === ds.id}
+                        className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg opacity-0 group-hover:opacity-100 transition-all focus:opacity-100 outline-none"
+                        title="Delete Dataset"
+                      >
+                        {isDeleting === ds.id ? (
+                          <Clock className="w-4 h-4 animate-spin text-red-500" />
                         ) : (
-                          <Clock className="w-3 h-3 animate-spin" />
-                        )
-                      }
-                    >
-                      {ds.status}
-                    </Badge>
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                      <Badge
+                        variant={
+                          ds.status === "ready"
+                            ? "success"
+                            : ds.status === "processing"
+                            ? "warning"
+                            : "error"
+                        }
+                        icon={
+                          ds.status === "ready" ? (
+                            <CheckCircle2 className="w-3 h-3" />
+                          ) : (
+                            <Clock className="w-3 h-3 animate-spin" />
+                          )
+                        }
+                      >
+                        {ds.status}
+                      </Badge>
+                    </div>
                   </div>
 
                   <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 mb-4">

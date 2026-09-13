@@ -2,13 +2,14 @@
 
 import React, { use, useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
 import { getDatasetById, Dataset } from "@/lib/mock/datasets";
 import { getDatasetProfile, DatasetProfile } from "@/lib/mock/datasetProfiles";
-import { getDataset as apiGetDataset, getDatasetProfile as apiGetDatasetProfile } from "@/lib/api/datasets";
+import { getDataset as apiGetDataset, getDatasetProfile as apiGetDatasetProfile, getSystemProfileDashboard, ApiSystemProfileDashboard, deleteDataset } from "@/lib/api/datasets";
 import { 
   ArrowLeft, 
   FileSpreadsheet, 
@@ -26,7 +27,11 @@ import {
   Layers,
   ChevronRight,
   HelpCircle,
-  FileText
+  FileText,
+  Activity,
+  Image as ImageIcon,
+  Trash2,
+  Clock
 } from "lucide-react";
 
 const convertToCSV = (objArray: Record<string, any>[]) => {
@@ -51,12 +56,15 @@ const convertToCSV = (objArray: Record<string, any>[]) => {
 export default function DatasetProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const datasetId = resolvedParams.id;
+  const router = useRouter();
 
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [systemDashboard, setSystemDashboard] = useState<ApiSystemProfileDashboard | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
   const [schemaSearch, setSchemaSearch] = useState("");
-  const [selectedStatColumn, setSelectedStatColumn] = useState<string>("");
 
   useEffect(() => {
     let isMounted = true;
@@ -134,6 +142,15 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 sample_rows: apiProf.sample_rows,
               };
               setProfile(mappedProf);
+              
+              // Also fetch system dashboard
+              try {
+                const sysDash = await getSystemProfileDashboard(datasetId);
+                if (isMounted) setSystemDashboard(sysDash);
+              } catch (sysErr) {
+                console.warn("System dashboard not available yet:", sysErr);
+              }
+
               setIsLoading(false);
               return;
             }
@@ -168,19 +185,20 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
     };
   }, [datasetId]);
 
-  // Initialize selected stat column once profile is loaded
-  useEffect(() => {
-    if (profile && profile.schema_summary.length > 0) {
-      const numericCols = profile.schema_summary.filter(
-        c => (c.data_type || "").startsWith("NUMERIC") || c.data_type === "INTEGER"
-      );
-      if (numericCols.length > 0) {
-        setSelectedStatColumn(numericCols[0].column_name);
-      } else {
-        setSelectedStatColumn(profile.schema_summary[0].column_name);
-      }
+  const handleDelete = async () => {
+    if (!window.confirm("Are you sure you want to delete this dataset? All associated runs, data, and profiles will be permanently removed.")) {
+      return;
     }
-  }, [profile]);
+    setIsDeleting(true);
+    try {
+      await deleteDataset(datasetId);
+      router.push("/home");
+    } catch (err) {
+      console.error("Failed to delete dataset:", err);
+      alert("Failed to delete dataset. Please try again.");
+      setIsDeleting(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -229,10 +247,6 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
     (col.column_name || "").toLowerCase().includes(schemaSearch.toLowerCase()) ||
     (col.data_type || "").toLowerCase().includes(schemaSearch.toLowerCase())
   );
-
-  // Find stats for the currently selected column
-  const activeColStats = profile.stats_summary.find(s => s.column_name === selectedStatColumn);
-  const activeColSchema = profile.schema_summary.find(s => s.column_name === selectedStatColumn);
 
   // Helper for type icons
   const getTypeIcon = (dataType: string) => {
@@ -334,6 +348,15 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
               {/* Action Buttons */}
               <div className="flex sm:items-center gap-2.5 shrink-0 self-stretch sm:self-auto flex-col sm:flex-row">
                 <button 
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-900/50 rounded-xl text-xs font-semibold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Delete Dataset"
+                >
+                  {isDeleting ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  <span>Delete</span>
+                </button>
+                <button 
                   onClick={() => {
                     let dataStr = "";
                     let filename = `sample_${dataset.filename}`;
@@ -422,10 +445,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                       filteredSchema.map((col, idx) => (
                         <tr 
                           key={col.column_name || idx} 
-                          onClick={() => setSelectedStatColumn(col.column_name)}
-                          className={`border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/40 dark:hover:bg-stone-800/40 transition-colors cursor-pointer ${
-                            selectedStatColumn === col.column_name ? "bg-indigo-50/40 dark:bg-indigo-950/20 font-medium" : ""
-                          }`}
+                          className={`border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/40 dark:hover:bg-stone-800/40 transition-colors`}
                         >
                           <td className="py-2.5 px-3.5 truncate max-w-[130px] sm:max-w-[180px]">
                             <div className="flex items-center gap-1.5">
@@ -462,127 +482,65 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
               </div>
             </BentoCard>
 
-            {/* Column Statistics Bento Card (Spans 1 or 2 columns on lg) */}
-            <BentoCard colSpan="col-span-1 md:col-span-1 lg:col-span-2" className="flex flex-col h-[480px]">
+            {/* System Profile Dashboard Bento Card (Spans 1 or 2 columns on lg) */}
+            <BentoCard colSpan="col-span-1 md:col-span-1 lg:col-span-2" className="flex flex-col min-h-[480px]">
               <div className="mb-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-stone-900 dark:text-stone-50 text-base flex items-center gap-1.5">
-                    <Binary className="w-4 h-4 text-emerald-500" />
-                    <span>Summary Statistics</span>
+                    <Activity className="w-4 h-4 text-emerald-500" />
+                    <span>Dataset Dashboard</span>
                   </h3>
                   <div className="text-[10px] font-medium text-stone-400 bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-md uppercase">
-                    Interactive
+                    AI Generated
                   </div>
                 </div>
                 <p className="text-[11px] text-stone-400">
-                  Select a column in the catalog to inspect distribution metrics
+                  Comprehensive visual overview built by the orchestrator
                 </p>
               </div>
 
-              {/* Column Selector for mobile / convenience */}
-              <div className="mb-3">
-                <label className="text-[10px] uppercase font-bold text-stone-400 block mb-1">Inspect Column</label>
-                <select
-                  value={selectedStatColumn}
-                  onChange={(e) => setSelectedStatColumn(e.target.value)}
-                  className="w-full text-xs font-semibold px-2.5 py-1.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl focus:outline-none focus:border-indigo-400 opacity-90 hover:opacity-100 transition-opacity"
-                >
-                  {profile.schema_summary.map((c, idx) => (
-                    <option key={c.column_name || idx} value={c.column_name}>
-                      {c.column_name} ({(c.data_type || "").toLowerCase()})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Details box */}
-              <div className="flex-1 flex flex-col justify-center">
-                {activeColSchema && activeColStats ? (
-                  <div className="space-y-4">
-                    {/* Selected column header */}
-                    <div className="p-3 rounded-2xl bg-indigo-50/30 dark:bg-indigo-950/10 border border-indigo-100/40 dark:border-indigo-900/10">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-stone-900 dark:text-stone-100 text-sm truncate">{selectedStatColumn}</span>
-                        <span className="text-[10px] text-stone-400 font-medium">Mapped as {activeColSchema.data_type}</span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
-                        <span>Total Count: <strong>{activeColStats.count.toLocaleString()}</strong></span>
-                        <span>Null Count: <strong>{activeColSchema.null_count.toLocaleString()}</strong></span>
-                      </div>
-                    </div>
-
-                    {/* Numeric stats list */}
-                    {((activeColSchema.data_type || "").startsWith("NUMERIC") || activeColSchema.data_type === "INTEGER") ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { label: "Mean Value", value: activeColStats.mean?.toLocaleString(), icon: <Percent className="w-3.5 h-3.5 text-stone-400" /> },
-                          { label: "Std Deviation", value: activeColStats.std?.toLocaleString(), icon: <HelpCircle className="w-3.5 h-3.5 text-stone-400" /> },
-                          { label: "Minimum", value: activeColStats.min?.toLocaleString() },
-                          { label: "25% Quantile", value: activeColStats.q25?.toLocaleString() },
-                          { label: "50% (Median)", value: activeColStats.q50?.toLocaleString(), highlight: true },
-                          { label: "75% Quantile", value: activeColStats.q75?.toLocaleString() },
-                          { label: "Maximum", value: activeColStats.max?.toLocaleString() }
-                        ].map((stat, i) => (
-                          <div 
-                            key={i} 
-                            className={`p-2.5 rounded-xl border border-stone-200/60 dark:border-stone-800 text-left ${
-                              stat.highlight ? "col-span-2 bg-emerald-50/20 dark:bg-emerald-950/10 border-emerald-200/40" : "bg-stone-50/30 dark:bg-stone-900/40"
-                            }`}
-                          >
-                            <span className="text-[10px] text-stone-400 font-medium block">{stat.label}</span>
-                            <span className={`text-xs font-bold ${stat.highlight ? "text-emerald-700 dark:text-emerald-400 text-sm" : "text-stone-800 dark:text-stone-200"}`}>
-                              {stat.value !== undefined ? stat.value : "N/A"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      /* Categorical/Boolean stats list */
-                      <div className="space-y-3">
-                        <div className="p-4 rounded-xl border border-stone-200/60 dark:border-stone-800 bg-stone-50/30 dark:bg-stone-900/40">
-                          <span className="text-[10px] text-stone-400 font-medium block mb-1">Most Frequent Value (Mode)</span>
-                          <span className="text-sm font-bold text-indigo-700 dark:text-indigo-400">
-                            &quot;{activeColStats.most_frequent_value}&quot;
-                          </span>
-                        </div>
-
-                        <div className="p-4 rounded-xl border border-stone-200/60 dark:border-stone-800 bg-stone-50/30 dark:bg-stone-900/40">
-                          <span className="text-[10px] text-stone-400 font-medium block mb-1">Occurrence Statistics</span>
-                          <div className="flex items-end justify-between">
-                            <div>
-                              <span className="text-xl font-bold text-stone-800 dark:text-stone-200">
-                                {activeColStats.most_frequent_count?.toLocaleString()}
-                              </span>
-                              <span className="text-[11px] text-stone-400 ml-1">records</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                                {activeColStats.most_frequent_count && activeColStats.count
-                                  ? `${((activeColStats.most_frequent_count / activeColStats.count) * 100).toFixed(1)}%`
-                                  : "N/A"}
-                              </span>
-                              <span className="text-[10px] text-stone-400 block font-medium">Dataset Prevalence</span>
-                            </div>
-                          </div>
-                          
-                          {/* Visual progress bar */}
-                          <div className="w-full h-2 bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden mt-3.5">
-                            <div 
-                              className="h-full bg-indigo-500 rounded-full"
-                              style={{ 
-                                width: activeColStats.most_frequent_count && activeColStats.count 
-                                  ? `${(activeColStats.most_frequent_count / activeColStats.count) * 100}%` 
-                                  : "0%" 
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
+              <div className="flex-1 flex flex-col mt-2">
+                {!systemDashboard ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
+                    <Activity className="w-8 h-8 mb-2 animate-pulse text-stone-300 dark:text-stone-700" />
+                    <p className="text-sm">Orchestrator is building the dashboard...</p>
+                    <p className="text-[10px] mt-1">This might take a moment.</p>
+                  </div>
+                ) : systemDashboard.run_status !== "completed" ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
+                    <Activity className="w-8 h-8 mb-2 animate-pulse text-indigo-400" />
+                    <p className="text-sm">Orchestrator is analyzing the dataset...</p>
+                    <p className="text-[10px] mt-1">Status: {systemDashboard.run_status || "queued"}</p>
                   </div>
                 ) : (
-                  <div className="py-12 text-center text-stone-400">
-                    No column statistics mapped
+                  <div className="flex flex-col gap-4 h-full">
+                    {systemDashboard.insight && (
+                      <div className="p-3.5 bg-stone-50/50 dark:bg-stone-900/40 border border-stone-200/50 dark:border-stone-800/50 rounded-xl">
+                        <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200 mb-1.5 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                          Key Findings
+                        </h4>
+                        <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed whitespace-pre-wrap">
+                          {systemDashboard.insight.summary_text}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {systemDashboard.visualization && systemDashboard.visualization.chart_file_path ? (
+                      <div className="flex-1 relative bg-white dark:bg-stone-950 rounded-xl border border-stone-100 dark:border-stone-800 p-2 overflow-hidden flex items-center justify-center">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img 
+                          src={`http://localhost:8000/static/${systemDashboard.visualization.chart_file_path.split("/").slice(-2).join("/")}`} 
+                          alt="Dataset Summary Dashboard" 
+                          className="max-w-full max-h-[400px] object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-stone-400 bg-stone-50 dark:bg-stone-900/20 rounded-xl border border-dashed border-stone-200 dark:border-stone-800">
+                        <ImageIcon className="w-8 h-8 mb-2 text-stone-300 dark:text-stone-700" />
+                        <p className="text-xs">Dashboard visualization is missing or failed to generate.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

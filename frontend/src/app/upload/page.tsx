@@ -1,352 +1,301 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { Badge } from "@/components/ui/Badge";
-import { useAuth } from "@/lib/auth/useAuth";
-import { addStoredDataset, Dataset } from "@/lib/mock/datasets";
-import { uploadDataset as apiUploadDataset, getDataset as apiGetDataset } from "@/lib/api/datasets";
+import { submitDatasetUrl, getDataset } from "@/lib/api/datasets";
 import {
-  UploadCloud,
-  FileSpreadsheet,
-  FileCode,
   ArrowLeft,
+  Database,
+  Sparkles,
+  ExternalLink,
   AlertCircle,
   CheckCircle2,
-  X,
-  Sparkles,
-  ShieldCheck,
-  FileText
+  Loader2,
+  ArrowRight,
+  RefreshCw,
+  Globe,
 } from "lucide-react";
+
+// Example datasets from kaggle_github_datasets.json (a curated subset)
+const EXAMPLE_DATASETS = [
+  { domain: "Finance", name: "Credit Card Fraud Detection", url: "mlg-ulb/creditcardfraud" },
+  { domain: "Telecom", name: "Telco Customer Churn", url: "blastchar/telco-customer-churn" },
+  { domain: "Healthcare", name: "Heart Disease UCI", url: "ronitf/heart-disease-uci" },
+  { domain: "E-commerce", name: "Brazilian E-Commerce Orders", url: "olistbr/brazilian-ecommerce" },
+  { domain: "HR", name: "IBM HR Analytics Attrition", url: "pavansubhasht/ibm-hr-analytics-attrition-dataset" },
+  { domain: "Housing", name: "House Prices (Ames Iowa)", url: "c/house-prices-advanced-regression-techniques" },
+  { domain: "Sports", name: "FIFA 22 Player Stats", url: "stefanoleone992/fifa-22-complete-player-dataset" },
+  { domain: "Education", name: "Students Performance", url: "spscientist/students-performance-in-exams" },
+];
+
+const DOMAIN_COLORS: Record<string, string> = {
+  Finance: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+  Telecom: "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300",
+  Healthcare: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
+  "E-commerce": "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+  HR: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300",
+  Housing: "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
+  Sports: "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300",
+  Education: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
+};
+
+type Stage = "idle" | "submitting" | "polling" | "ready" | "error";
 
 export default function UploadPage() {
   const router = useRouter();
-  const { user } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStage, setUploadStage] = useState("");
+  const [url, setUrl] = useState("");
+  const [stage, setStage] = useState<Stage>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [datasetId, setDatasetId] = useState<string | null>(null);
+  const [pollCount, setPollCount] = useState(0);
 
-  const allowedExtensions = [".csv", ".json"];
-
-  const validateAndSetFile = (file: File) => {
-    setValidationError(null);
-    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-
-    if (!allowedExtensions.includes(ext)) {
-      setValidationError(
-        `Unsupported format (${ext || "unknown"}). Only .csv and .json files are allowed.`
-      );
-      setSelectedFile(null);
-      return false;
-    }
-
-    setSelectedFile(file);
-    return true;
-  };
-
-  const handleFileDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      validateAndSetFile(file);
-    }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      validateAndSetFile(file);
-    }
-  };
-
-  const handleStartUpload = async () => {
-    if (!selectedFile) return;
-
-    setIsUploading(true);
-    setUploadProgress(15);
-    setUploadStage("Validating file & transmitting payload to backend...");
+  const submit = async (submittedUrl: string) => {
+    const trimmed = submittedUrl.trim();
+    if (!trimmed) return;
+    setError(null);
+    setStage("submitting");
 
     try {
-      // Step 1: Upload file to backend
-      const dataset = await apiUploadDataset(selectedFile);
-      setUploadProgress(45);
-      setUploadStage("Dataset uploaded. Profiling schema, row counts, and statistics...");
+      const dataset = await submitDatasetUrl(trimmed);
+      setDatasetId(dataset.id);
+      setStage("polling");
+      pollForReady(dataset.id);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg || "Failed to submit dataset URL. Please check the format.");
+      setStage("error");
+    }
+  };
 
-      // Step 2: Poll backend status until profiling completes
-      let currentStatus = dataset.status;
-      let polls = 0;
-      const maxPolls = 30; // Max 30 seconds poll timeout
+  const pollForReady = async (id: string) => {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60;
 
-      while (currentStatus === "processing" && polls < maxPolls) {
-        await new Promise((res) => setTimeout(res, 1000));
-        polls++;
-        setUploadProgress(Math.min(45 + polls * 5, 90));
-
-        try {
-          const updated = await apiGetDataset(dataset.id);
-          currentStatus = updated.status;
-          if (currentStatus === "failed") {
-            throw new Error(updated.description || "Dataset profiling failed on backend.");
-          }
-        } catch (pollErr) {
-          console.warn("Polling dataset status error:", pollErr);
+    const poll = async () => {
+      attempts++;
+      setPollCount(attempts);
+      try {
+        const ds = await getDataset(id);
+        if (ds.status === "ready") {
+          setStage("ready");
+          setTimeout(() => router.push(`/datasets/${id}`), 1200);
+          return;
+        }
+        if (ds.status === "failed") {
+          setError(ds.description || "Dataset processing failed.");
+          setStage("error");
+          return;
+        }
+        if (attempts < MAX_ATTEMPTS) {
+          setTimeout(poll, 3000);
+        } else {
+          setError("Timed out waiting for the dataset to be ready. Check the Home page later.");
+          setStage("error");
+        }
+      } catch {
+        if (attempts < MAX_ATTEMPTS) {
+          setTimeout(poll, 3000);
         }
       }
+    };
 
-      setUploadProgress(100);
-      setUploadStage("Dataset ready! Loading profile view...");
-
-      setTimeout(() => {
-        router.push(`/datasets/${dataset.id}`);
-      }, 600);
-    } catch (err: any) {
-      console.warn("Real API upload failed, using local fallback mode:", err);
-      // Fallback for offline dev or fallback simulation
-      setUploadProgress(75);
-      setUploadStage("Indexing schema & estimating statistics (fallback)...");
-
-      setTimeout(() => {
-        setUploadProgress(100);
-        setUploadStage("Dataset ready! Finalizing profile...");
-
-        const ext = selectedFile.name.substring(selectedFile.name.lastIndexOf(".")).replace(".", "") as 'csv' | 'json';
-        const cleanName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const newDatasetId = `ds_upload_${Math.random().toString(36).substring(2, 8)}_${Date.now().toString().slice(-4)}`;
-
-        const newDataset: Dataset = {
-          id: newDatasetId,
-          user_id: user?.id || "usr_01HGB897XYZ",
-          filename: cleanName,
-          format: ext === "json" ? "json" : "csv",
-          storage_path: `uploads/2026/07/${cleanName}`,
-          row_count: Math.floor(Math.random() * 18000) + 1200,
-          column_count: Math.floor(Math.random() * 20) + 8,
-          file_size_bytes: selectedFile.size || 2450000,
-          uploaded_at: new Date().toISOString(),
-          status: "ready",
-          description: `User uploaded ${cleanName} dataset. Automatic profiling completed.`,
-          primary_domain: ext === "json" ? "Structured JSON" : "Tabular Data",
-        };
-
-        addStoredDataset(newDataset);
-
-        setTimeout(() => {
-          router.push(`/datasets/${newDataset.id}`);
-        }, 600);
-      }, 1000);
-    }
+    setTimeout(poll, 2000);
   };
 
-  const formatBytes = (bytes: number) => {
-    if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submit(url);
   };
+
+  const handleExample = (exampleUrl: string) => {
+    setUrl(exampleUrl);
+    submit(exampleUrl);
+  };
+
+  const isActive = stage === "submitting" || stage === "polling";
 
   return (
     <AuthGuard>
-      <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
+      <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
         <Header />
 
-        <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12">
-          {/* Breadcrumb / Back link */}
-          <div className="mb-6">
+        <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 flex flex-col gap-8">
+
+          {/* Page header */}
+          <div>
             <Link
               href="/home"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-indigo-600 dark:text-stone-400 dark:hover:text-indigo-400 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 transition-colors mb-6"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Workspace</span>
+              Back to Workspace
             </Link>
-          </div>
 
-          {/* Header title */}
-          <div className="mb-8">
             <div className="flex items-center gap-2 mb-2">
               <Badge variant="indigo" icon={<Sparkles className="w-3 h-3" />}>
-                FR-ING-01 &amp; FR-ING-02
+                Step 1
               </Badge>
-              <span className="text-xs text-stone-400">CSV / JSON Format Support</span>
+              <span className="text-xs text-stone-400 font-medium">Dataset Ingestion</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900 dark:text-stone-50">
-              Upload New Dataset
+              Connect a Dataset
             </h1>
-            <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-1">
-              Select or drop a dataset file to generate automated summary profiles and research questions.
+            <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-1 leading-relaxed max-w-2xl">
+              Paste a Kaggle dataset URL, Kaggle shorthand reference <code className="bg-stone-100 dark:bg-stone-800 px-1 rounded">owner/slug</code>, or a direct GitHub raw CSV link. DataMind will download and profile it automatically.
             </p>
           </div>
 
-          {/* Main Card Container */}
-          <div className="bg-white dark:bg-[#191921] border border-blue-100/60 dark:border-stone-800 rounded-3xl p-6 sm:p-8 shadow-[0_2px_12px_0_rgb(37_99_235/0.06),0_1px_3px_0_rgb(15_23_42/0.05)] dark:shadow-sm">
-            {/* Validation Error Alert */}
-            {validationError && (
-              <div className="mb-6 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200 text-xs flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-semibold block mb-0.5">Invalid File Type</span>
-                    <span>{validationError}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setValidationError(null)}
-                  className="text-rose-500 hover:text-rose-700 dark:hover:text-rose-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+          {/* URL Input card */}
+          <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-8 shadow-sm">
+            <div className="flex items-center gap-2 mb-5">
+              <Globe className="w-4 h-4 text-indigo-500" />
+              <h2 className="text-sm font-bold text-stone-800 dark:text-stone-100">
+                Dataset URL or Reference
+              </h2>
+            </div>
 
-            {/* Drag & Drop Area */}
-            {!selectedFile && !isUploading && (
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragOver(true);
-                }}
-                onDragLeave={() => setIsDragOver(false)}
-                onDrop={handleFileDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`relative cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-12 text-center transition-all duration-200 ${
-                  isDragOver
-                    ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 scale-[1.005]"
-                    : "border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/40 hover:border-indigo-300 dark:hover:border-indigo-800"
-                }`}
-              >
+            <form onSubmit={handleFormSubmit} className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 relative">
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.json"
-                  onChange={handleFileSelect}
-                  className="hidden"
+                  type="text"
+                  id="dataset-url-input"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  disabled={isActive}
+                  placeholder="e.g. mlg-ulb/creditcardfraud  or  https://www.kaggle.com/datasets/..."
+                  className="w-full px-4 py-3 text-sm rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all disabled:opacity-60"
                 />
-
-                <div className="mx-auto w-14 h-14 mb-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-sm">
-                  <UploadCloud className="w-7 h-7" />
-                </div>
-
-                <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 mb-1">
-                  Click to choose or drag and drop file here
-                </h3>
-                <p className="text-xs text-stone-500 dark:text-stone-400 max-w-sm mx-auto mb-4">
-                  Supports <strong className="text-stone-700 dark:text-stone-300">.CSV</strong> and{" "}
-                  <strong className="text-stone-700 dark:text-stone-300">.JSON</strong> files up to 100MB
-                </p>
-
-                <div className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200/50 dark:border-indigo-900/50">
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Select File from Computer</span>
-                </div>
               </div>
-            )}
+              <button
+                type="submit"
+                disabled={isActive || !url.trim()}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer group shrink-0"
+              >
+                {isActive ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Database className="w-4 h-4" />
+                )}
+                <span>{isActive ? "Processing…" : "Load Dataset"}</span>
+                {!isActive && <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />}
+              </button>
+            </form>
 
-            {/* Selected File Card & Actions */}
-            {selectedFile && !isUploading && (
-              <div className="space-y-6">
-                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-900/60 border border-stone-200/80 dark:border-stone-800 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200">
-                      {selectedFile.name.endsWith(".csv") ? (
-                        <FileSpreadsheet className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <FileCode className="w-6 h-6 text-amber-600 dark:text-amber-400" />
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                        {selectedFile.name}
-                      </h4>
-                      <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5">
-                        <span>{formatBytes(selectedFile.size)}</span>
-                        <span>•</span>
-                        <span className="uppercase font-medium text-indigo-600 dark:text-indigo-400">
-                          {selectedFile.name.substring(selectedFile.name.lastIndexOf(".") + 1)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFile(null)}
-                    className="p-2 text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                    title="Remove file"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+            {/* URL format help */}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                { label: "Kaggle ref", example: "owner/dataset-slug" },
+                { label: "Kaggle URL", example: "kaggle.com/datasets/owner/slug" },
+                { label: "GitHub raw", example: "raw.githubusercontent.com/…/file.csv" },
+              ].map(({ label, example }) => (
+                <div
+                  key={label}
+                  className="bg-stone-50 dark:bg-stone-900/40 border border-stone-100 dark:border-stone-800 rounded-xl px-3 py-2"
+                >
+                  <span className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider block mb-0.5">{label}</span>
+                  <code className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono break-all">{example}</code>
                 </div>
-
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFile(null)}
-                    className="px-4 py-2.5 text-xs font-medium text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleStartUpload}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all"
-                  >
-                    <UploadCloud className="w-4 h-4" />
-                    <span>Start Ingestion &amp; Analysis</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Simulated Progress View */}
-            {isUploading && (
-              <div className="py-8 px-4 text-center">
-                <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-100 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                  {uploadProgress === 100 ? (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-500 animate-bounce" />
-                  ) : (
-                    <UploadCloud className="w-6 h-6 animate-pulse" />
-                  )}
-                </div>
-
-                <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 mb-1">
-                  {uploadProgress === 100 ? "Upload & Indexing Complete!" : "Processing Dataset Payload..."}
-                </h3>
-                <p className="text-xs text-stone-500 dark:text-stone-400 mb-6">
-                  {uploadStage}
-                </p>
-
-                {/* Animated Progress Bar */}
-                <div className="max-w-md mx-auto">
-                  <div className="w-full h-3 bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden mb-2">
-                    <div
-                      className="h-full bg-linear-to-r from-blue-500 to-indigo-500 dark:from-indigo-500 dark:to-purple-500 transition-all duration-300 ease-out"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[11px] text-stone-400 font-medium">
-                    <span>{uploadProgress}%</span>
-                    <span>FR-ING-04 Automated Profiling</span>
-                  </div>
-                </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
 
-          {/* Scope notice */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-stone-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Frontend Execution Scope: Upload simulation updates local session data</span>
-          </div>
+          {/* Status display */}
+          {(stage === "submitting" || stage === "polling") && (
+            <div className="bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded-2xl p-5 flex items-center gap-4">
+              <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl shrink-0">
+                <Loader2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 animate-spin" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-indigo-800 dark:text-indigo-200">
+                  {stage === "submitting" ? "Submitting dataset…" : "Downloading & profiling…"}
+                </p>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  {stage === "polling"
+                    ? `Kaggle datasets can take 30–90 seconds. Checking status… (${pollCount})`
+                    : "Registering dataset with DataMind backend…"}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {stage === "ready" && (
+            <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40 rounded-2xl p-5 flex items-center gap-4">
+              <div className="p-2.5 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Dataset ready!</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  Redirecting to the data profile…
+                </p>
+              </div>
+            </div>
+          )}
+
+          {stage === "error" && (
+            <div className="bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-800/40 rounded-2xl p-5 flex items-start gap-4">
+              <div className="p-2.5 bg-rose-100 dark:bg-rose-900/40 rounded-xl shrink-0 mt-0.5">
+                <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-rose-800 dark:text-rose-200">Error</p>
+                <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5 leading-relaxed">{error}</p>
+              </div>
+              <button
+                onClick={() => { setStage("idle"); setError(null); }}
+                className="shrink-0 text-xs font-semibold text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-200 flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Example datasets */}
+          {(stage === "idle" || stage === "error") && (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles className="w-4 h-4 text-stone-400" />
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-stone-400">
+                  Try an example dataset
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {EXAMPLE_DATASETS.map((ds) => (
+                  <button
+                    key={ds.url}
+                    onClick={() => handleExample(ds.url)}
+                    className="group text-left bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-2xl p-4 transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full tracking-wide uppercase ${DOMAIN_COLORS[ds.domain] ?? "bg-stone-50 text-stone-500"}`}>
+                        {ds.domain}
+                      </span>
+                      <ExternalLink className="w-3 h-3 text-stone-300 group-hover:text-indigo-500 shrink-0 transition-colors mt-0.5" />
+                    </div>
+                    <p className="text-sm font-bold text-stone-800 dark:text-stone-100 leading-snug mb-1">
+                      {ds.name}
+                    </p>
+                    <code className="text-[10px] text-stone-400 dark:text-stone-500 font-mono">
+                      {ds.url}
+                    </code>
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-xs text-stone-400 mt-3 text-center">
+                ⚠️ Kaggle datasets require{" "}
+                <code className="bg-stone-100 dark:bg-stone-800 px-1 rounded">~/.kaggle/kaggle.json</code>{" "}
+                to be configured on the server.
+              </p>
+            </div>
+          )}
         </main>
       </div>
     </AuthGuard>
