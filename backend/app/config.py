@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     sandbox_timeout_seconds: int = 60
     sandbox_memory_limit: str = "1g"
     sandbox_cpu_limit: str = "1"
+    # Set USE_DOCKER_SANDBOX=true to run generated code inside datamind-sandbox:latest
+    # (docker run --rm --network none, memory/CPU capped). Keep false for fast local
+    # subprocess execution during development.
+    use_docker_sandbox: bool = False
 
     # RAG (local, Docker-free — Chroma persistent client + local embeddings)
     rag_persist_dir: str = "../data/rag_store"
