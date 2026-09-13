@@ -30,7 +30,7 @@ export default function LoginPage() {
   const [touched, setTouched] = useState({ email: false, password: false });
 
   // Inline Validation checks
-  const isEmailValid = /\S+@\S+\.\S+/.test(email);
+  const isEmailValid = /\S+@\S+/.test(email);
   const isPasswordValid = password.length >= 6;
   const isFormValid = isEmailValid && isPasswordValid;
 

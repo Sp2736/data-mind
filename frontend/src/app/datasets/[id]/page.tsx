@@ -88,9 +88,49 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
               const mappedProf: DatasetProfile = {
                 id: `dp_${apiProf.dataset_id}`,
                 dataset_id: apiProf.dataset_id,
-                schema_summary: apiProf.schema_summary,
-                stats_summary: apiProf.stats_summary,
-                correlation_summary: apiProf.correlation_summary,
+                schema_summary: apiProf.schema_summary.map((c: any) => ({
+                  column_name: c.column_name || c.column || "Unknown",
+                  data_type: c.data_type || c.dtype || "UNKNOWN",
+                  is_primary_key: c.is_primary_key || false,
+                  null_count: c.null_count || 0,
+                  null_percentage: c.null_percentage !== undefined ? c.null_percentage : (c.null_pct || 0),
+                  unique_count: c.unique_count || 0,
+                })),
+                stats_summary: apiProf.stats_summary.map((s: any) => ({
+                  column_name: s.column_name || s.column || "Unknown",
+                  count: s.count || 0,
+                  mean: s.mean,
+                  std: s.std,
+                  min: s.min,
+                  q25: s.q25 !== undefined ? s.q25 : s["25%"],
+                  q50: s.q50 !== undefined ? s.q50 : s["50%"],
+                  q75: s.q75 !== undefined ? s.q75 : s["75%"],
+                  max: s.max,
+                  most_frequent_value: s.most_frequent_value,
+                  most_frequent_count: s.most_frequent_count,
+                })),
+                correlation_summary: Array.isArray(apiProf.correlation_summary) 
+                  ? apiProf.correlation_summary.flatMap((c: any) => {
+                      if (c.column_x && c.coefficient !== undefined) return [c];
+                      if (c.correlations) {
+                        return Object.entries(c.correlations)
+                          .filter(([k, v]) => k !== c.column && v !== null && typeof v === "number")
+                          .map(([k, v]) => ({
+                            column_x: c.column,
+                            column_y: k,
+                            coefficient: v
+                          }));
+                      }
+                      return [];
+                    }).filter((v: any, i: number, a: any[]) => {
+                      // deduplicate A-B and B-A
+                      const firstIdx = a.findIndex((t: any) => 
+                        (t.column_x === v.column_y && t.column_y === v.column_x) || 
+                        (t.column_x === v.column_x && t.column_y === v.column_y)
+                      );
+                      return firstIdx === i;
+                    }).sort((a: any, b: any) => Math.abs(b.coefficient) - Math.abs(a.coefficient)).slice(0, 20)
+                  : [],
                 sample_rows: apiProf.sample_rows,
               };
               setProfile(mappedProf);
@@ -132,7 +172,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
   useEffect(() => {
     if (profile && profile.schema_summary.length > 0) {
       const numericCols = profile.schema_summary.filter(
-        c => c.data_type.startsWith("NUMERIC") || c.data_type === "INTEGER"
+        c => (c.data_type || "").startsWith("NUMERIC") || c.data_type === "INTEGER"
       );
       if (numericCols.length > 0) {
         setSelectedStatColumn(numericCols[0].column_name);
@@ -186,8 +226,8 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
 
   // Filter schema summary based on user query
   const filteredSchema = profile.schema_summary.filter(col =>
-    col.column_name.toLowerCase().includes(schemaSearch.toLowerCase()) ||
-    col.data_type.toLowerCase().includes(schemaSearch.toLowerCase())
+    (col.column_name || "").toLowerCase().includes(schemaSearch.toLowerCase()) ||
+    (col.data_type || "").toLowerCase().includes(schemaSearch.toLowerCase())
   );
 
   // Find stats for the currently selected column
@@ -196,7 +236,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
 
   // Helper for type icons
   const getTypeIcon = (dataType: string) => {
-    const type = dataType.toUpperCase();
+    const type = (dataType || "").toUpperCase();
     if (type.includes("INT") || type === "INTEGER") return <Hash className="w-3.5 h-3.5 text-blue-500" />;
     if (type.includes("NUMERIC") || type.includes("DECIMAL") || type.includes("FLOAT") || type.includes("DOUBLE")) return <Binary className="w-3.5 h-3.5 text-emerald-500" />;
     if (type.includes("TIMESTAMP") || type.includes("DATE") || type.includes("TIME")) return <Calendar className="w-3.5 h-3.5 text-pink-500" />;
@@ -252,7 +292,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
           <BentoGrid>
             {/* Header / Info Bento Card (Spans full width on lg) */}
             <BentoCard colSpan="col-span-full" className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-gradient-to-br from-indigo-50/30 via-white to-purple-50/20 dark:from-[#1b1928] dark:via-[#191921] dark:to-[#14141c] border-indigo-100/40 dark:border-stone-800/80">
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-4 min-w-0 flex-1">
                 <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/80 border border-indigo-100/60 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 shrink-0">
                   {dataset.format === "json" ? (
                     <FileCode className="w-7 h-7" />
@@ -260,9 +300,9 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                     <FileSpreadsheet className="w-7 h-7" />
                   )}
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-50 truncate max-w-full" title={dataset.filename}>
                       {dataset.filename}
                     </h1>
                     <Badge variant="success" icon={<CheckCircle2 className="w-3 h-3" />}>
@@ -379,9 +419,9 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                         </td>
                       </tr>
                     ) : (
-                      filteredSchema.map((col) => (
+                      filteredSchema.map((col, idx) => (
                         <tr 
-                          key={col.column_name} 
+                          key={col.column_name || idx} 
                           onClick={() => setSelectedStatColumn(col.column_name)}
                           className={`border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/40 dark:hover:bg-stone-800/40 transition-colors cursor-pointer ${
                             selectedStatColumn === col.column_name ? "bg-indigo-50/40 dark:bg-indigo-950/20 font-medium" : ""
@@ -398,7 +438,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                           <td className="py-2.5 px-3">
                             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-600 dark:text-stone-400 bg-stone-100/70 dark:bg-stone-800/70 py-0.5 px-1.5 rounded-md">
                               {getTypeIcon(col.data_type)}
-                              <span>{col.data_type.toLowerCase()}</span>
+                              <span>{(col.data_type || "").toLowerCase()}</span>
                             </span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-medium text-stone-600 dark:text-stone-400">
@@ -447,9 +487,9 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                   onChange={(e) => setSelectedStatColumn(e.target.value)}
                   className="w-full text-xs font-semibold px-2.5 py-1.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl focus:outline-none focus:border-indigo-400 opacity-90 hover:opacity-100 transition-opacity"
                 >
-                  {profile.schema_summary.map(c => (
-                    <option key={c.column_name} value={c.column_name}>
-                      {c.column_name} ({c.data_type.toLowerCase()})
+                  {profile.schema_summary.map((c, idx) => (
+                    <option key={c.column_name || idx} value={c.column_name}>
+                      {c.column_name} ({(c.data_type || "").toLowerCase()})
                     </option>
                   ))}
                 </select>
@@ -472,7 +512,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                     </div>
 
                     {/* Numeric stats list */}
-                    {(activeColSchema.data_type.startsWith("NUMERIC") || activeColSchema.data_type === "INTEGER") ? (
+                    {((activeColSchema.data_type || "").startsWith("NUMERIC") || activeColSchema.data_type === "INTEGER") ? (
                       <div className="grid grid-cols-2 gap-2">
                         {[
                           { label: "Mean Value", value: activeColStats.mean?.toLocaleString(), icon: <Percent className="w-3.5 h-3.5 text-stone-400" /> },
@@ -569,8 +609,9 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 ) : (
                   <div className="space-y-4">
                     {profile.correlation_summary.map((corr, idx) => {
-                      const isPositive = corr.coefficient >= 0;
-                      const absVal = Math.abs(corr.coefficient);
+                      const coef = typeof corr.coefficient === "number" ? corr.coefficient : 0;
+                      const isPositive = coef >= 0;
+                      const absVal = Math.abs(coef);
                       
                       return (
                         <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-stone-100 dark:border-stone-800 last:border-b-0 last:pb-0">
@@ -617,7 +658,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                                 ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-900/40"
                                 : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-100 dark:border-rose-900/40"
                             }`}>
-                              {isPositive ? `+${corr.coefficient.toFixed(2)}` : corr.coefficient.toFixed(2)}
+                              {isPositive ? `+${coef.toFixed(2)}` : coef.toFixed(2)}
                             </span>
                           </div>
                         </div>
@@ -682,8 +723,8 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-stone-100 dark:border-stone-800 text-[10px] uppercase text-stone-400 font-semibold bg-stone-50 dark:bg-stone-900">
-                      {profile.schema_summary.map((col) => (
-                        <th key={col.column_name} className="py-2.5 px-4">
+                      {profile.schema_summary.map((col, idx) => (
+                        <th key={col.column_name || idx} className="py-2.5 px-4">
                           <div className="flex items-center gap-1">
                             {getTypeIcon(col.data_type)}
                             <span>{col.column_name}</span>
@@ -698,7 +739,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                         key={rIdx} 
                         className="border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/30 dark:hover:bg-stone-800/20 last:border-b-0 transition-colors"
                       >
-                        {profile.schema_summary.map((col) => {
+                        {profile.schema_summary.map((col, idx) => {
                           const val = row[col.column_name];
                           let valStr = "";
                           if (val === null || val === undefined) {
@@ -711,7 +752,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
 
                           return (
                             <td 
-                              key={col.column_name} 
+                              key={col.column_name || idx} 
                               className={`py-2.5 px-4 font-mono text-[11px] ${
                                 val === null || val === undefined 
                                   ? "text-stone-400 italic" 

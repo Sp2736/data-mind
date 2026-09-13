@@ -7,7 +7,7 @@ import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
-import { getDatasetById } from "@/lib/mock/datasets";
+import { getDataset as apiGetDataset } from "@/lib/api/datasets";
 import { getResearchQuestions, ResearchQuestion } from "@/lib/mock/researchQuestions";
 import {
   ArrowLeft,
@@ -30,21 +30,56 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
   const router = useRouter();
   const resolvedParams = use(params);
   const datasetId = resolvedParams.id;
-  const dataset = getDatasetById(datasetId);
 
-  // Fetch all research questions
+  // Fetch dataset from the real API (not mock data)
+  const [dataset, setDataset] = useState<{ id: string; filename: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDataset() {
+      setIsLoading(true);
+      try {
+        const apiDs = await apiGetDataset(datasetId);
+        if (isMounted && apiDs) {
+          setDataset({ id: apiDs.id, filename: apiDs.filename });
+        }
+      } catch {
+        if (isMounted) setDataset(null);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+    loadDataset();
+    return () => { isMounted = false; };
+  }, [datasetId]);
+
+  // Fetch all research questions (uses filename once dataset is loaded)
   const allQuestions = getResearchQuestions(datasetId, dataset?.filename);
 
   // State to track selected RQs
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"all" | "pre-processing" | "eda">("all");
 
-  // Select all questions by default on load
+  // Select all questions by default once dataset + questions are ready
   useEffect(() => {
-    if (allQuestions.length > 0) {
+    if (!isLoading && allQuestions.length > 0) {
       setSelectedIds(allQuestions.map(q => q.id));
     }
-  }, [datasetId]);
+  }, [datasetId, isLoading]);
+
+  if (isLoading) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
+          <Header />
+          <main className="flex-1 flex items-center justify-center">
+            <div className="text-sm text-stone-400 animate-pulse">Loading dataset...</div>
+          </main>
+        </div>
+      </AuthGuard>
+    );
+  }
 
   if (!dataset) {
     return (
