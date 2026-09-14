@@ -92,11 +92,23 @@ export interface ApiInsight {
   created_at: string;
 }
 
+export interface InteractiveChart {
+  chart_type: "bar" | "line" | "pie" | "area" | "scatter" | "histogram";
+  title: string;
+  description: string;
+  x_axis_key: string;
+  y_axis_keys: string[];
+  data: Record<string, unknown>[];
+}
+
 export interface ApiVisualization {
   id: string;
   insight_id: string;
   chart_type: string;
-  chart_config: Record<string, unknown>;
+  chart_config: {
+    charts?: InteractiveChart[];
+    [key: string]: unknown;
+  };
   chart_file_path?: string | null;
   created_at: string;
 }

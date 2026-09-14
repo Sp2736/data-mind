@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { getDatasetById, Dataset } from "@/lib/mock/datasets";
 import { getDatasetProfile, DatasetProfile } from "@/lib/mock/datasetProfiles";
 import { getDataset as apiGetDataset, getDatasetProfile as apiGetDatasetProfile, getSystemProfileDashboard, ApiSystemProfileDashboard, deleteDataset } from "@/lib/api/datasets";
+import { SystemDashboardVisuals } from "@/components/charts/SystemDashboardVisuals";
 import { 
   ArrowLeft, 
   FileSpreadsheet, 
@@ -185,6 +186,22 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
     };
   }, [datasetId]);
 
+  // Poll system dashboard until it's done
+  useEffect(() => {
+    const status = systemDashboard?.run_status;
+    if (status === "succeeded" || status === "failed") return; // terminal — stop polling
+    const timer = setInterval(async () => {
+      try {
+        const sysDash = await getSystemProfileDashboard(datasetId);
+        setSystemDashboard(sysDash);
+      } catch {
+        // ignore
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [datasetId, systemDashboard?.run_status]);
+
+
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete this dataset? All associated runs, data, and profiles will be permanently removed.")) {
       return;
@@ -357,7 +374,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                   <span>Delete</span>
                 </button>
                 <button 
-                  onClick={() => {
+                  onClick={function() {
                     let dataStr = "";
                     let filename = `sample_${dataset.filename}`;
                     
@@ -506,7 +523,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                     <p className="text-sm">Orchestrator is building the dashboard...</p>
                     <p className="text-[10px] mt-1">This might take a moment.</p>
                   </div>
-                ) : systemDashboard.run_status !== "completed" ? (
+                ) : systemDashboard.run_status !== "succeeded" ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-stone-400">
                     <Activity className="w-8 h-8 mb-2 animate-pulse text-indigo-400" />
                     <p className="text-sm">Orchestrator is analyzing the dataset...</p>
@@ -526,15 +543,8 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                       </div>
                     )}
                     
-                    {systemDashboard.visualization && systemDashboard.visualization.chart_file_path ? (
-                      <div className="flex-1 relative bg-white dark:bg-stone-950 rounded-xl border border-stone-100 dark:border-stone-800 p-2 overflow-hidden flex items-center justify-center">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img 
-                          src={`http://localhost:8000/static/${systemDashboard.visualization.chart_file_path.split("/").slice(-2).join("/")}`} 
-                          alt="Dataset Summary Dashboard" 
-                          className="max-w-full max-h-[400px] object-contain"
-                        />
-                      </div>
+                    {systemDashboard.visualization && systemDashboard.visualization.chart_config?.charts ? (
+                      <SystemDashboardVisuals charts={systemDashboard.visualization.chart_config.charts} />
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center text-stone-400 bg-stone-50 dark:bg-stone-900/20 rounded-xl border border-dashed border-stone-200 dark:border-stone-800">
                         <ImageIcon className="w-8 h-8 mb-2 text-stone-300 dark:text-stone-700" />
