@@ -1,4 +1,5 @@
 import logging
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db, AsyncSessionLocal
-from app.db.models import AnalysisRun, Dataset, DatasetProfile, ExecutionAttempt, GeneratedCode, LocalUser
+from app.db.models import AnalysisRun, Dataset, DatasetProfile, ExecutionAttempt, GeneratedCode, LocalUser, ResearchQuestion, Insight, Visualization
 from app.deps import get_current_user
 from app.schemas.datasets import DatasetOut, DatasetProfileOut, SubmitDatasetUrlRequest
 from app.services import dataset_fetch, profiling
@@ -231,15 +232,22 @@ async def get_dataset_system_profile(
     if dataset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
-    profile_result = await db.execute(
-        select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
+    # Find the system_profile research question for this dataset
+    rq_result = await db.execute(
+        select(ResearchQuestion).where(
+            ResearchQuestion.dataset_id == dataset_id,
+            ResearchQuestion.category == "system_profile"
+        )
     )
-    dp = profile_result.scalar_one_or_none()
-    if dp is None or dp.system_run_id is None:
+    rq = rq_result.scalar_one_or_none()
+    if rq is None:
         return SystemProfileDashboardOut(run_status=None, insight=None, visualization=None)
 
-    run_result = await db.execute(select(AnalysisRun).where(AnalysisRun.id == dp.system_run_id))
-    run = run_result.scalar_one_or_none()
+    # Get the latest run for this RQ
+    run_result = await db.execute(
+        select(AnalysisRun).where(AnalysisRun.rq_id == rq.id).order_by(AnalysisRun.created_at.desc())
+    )
+    run = run_result.scalars().first()
     
     if run is None:
         return SystemProfileDashboardOut(run_status=None, insight=None, visualization=None)

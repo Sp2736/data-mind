@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.agents.schemas import InsightOutput
 from app.agents.state import AnalysisState
-from app.services.llm import get_llm
+from app.services.llm import get_llm, with_llm_retry
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -17,12 +17,14 @@ async def insight_writer(state: AnalysisState) -> AnalysisState:
         InsightOutput, include_raw=True
     )
 
-    execution = state["final_execution"]
+    execution = state.get("final_execution", {})
     user_payload = {
         "question_text": state["question_text"],
-        "stdout": execution["stdout"],
+        "category": state["category"],
+        "stdout": execution.get("stdout", ""),
         "dataset_profile_row_count": len(state.get("sample_rows", [])),
         "similar_past_insights": state.get("similar_past_insights", []),
+        "stats_summary": state.get("stats_summary", []),
     }
 
     messages = [
@@ -30,16 +32,21 @@ async def insight_writer(state: AnalysisState) -> AnalysisState:
         {"role": "user", "content": str(user_payload)},
     ]
 
-    result = await llm.ainvoke(messages)
-    parsed: InsightOutput | None = result["parsed"]
+    @with_llm_retry
+    async def _invoke():
+        return await llm.ainvoke(messages)
+
+    result = await _invoke()
+    parsed: InsightOutput | None = result.get("parsed")
     if parsed is None:
-        logger.error("insight_writer: structured parse failed, raw=%s", result["raw"])
+        logger.error("insight_writer: structured parse failed, raw=%s", result.get("raw"))
         raise ValueError("Failed to parse insight from LLM output")
 
-    usage = getattr(result["raw"], "usage_metadata", None) or {}
+    usage = getattr(result.get("raw"), "usage_metadata", None) or {}
 
     return {
         **state,
+        "status": "succeeded" if state["category"] == "system_profile" else state.get("status", "running"),
         "final_insight": {
             "category": state["category"],
             "summary_text": parsed.summary_text,
@@ -51,3 +58,4 @@ async def insight_writer(state: AnalysisState) -> AnalysisState:
         "completion_tokens": state.get("completion_tokens", 0) + usage.get("output_tokens", 0),
         "total_tokens": state.get("total_tokens", 0) + usage.get("total_tokens", 0),
     }
+

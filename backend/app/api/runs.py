@@ -103,14 +103,15 @@ async def _execute_run(run_id: str) -> None:
         profile = profile_result.scalar_one()
 
         similar_past_insights = []
-        try:
-            from app.rag.retriever import retrieve_similar_insights
+        if rq.category != "system_profile":
+            try:
+                from app.rag.retriever import retrieve_similar_insights
 
-            similar_past_insights = await retrieve_similar_insights(
-                schema_summary=profile.schema_summary, k=5
-            )
-        except Exception:
-            logger.exception("RAG retrieval failed for run %s, continuing without it", run_id)
+                similar_past_insights = await retrieve_similar_insights(
+                    schema_summary=profile.schema_summary, k=5
+                )
+            except Exception:
+                logger.exception("RAG retrieval failed for run %s, continuing without it", run_id)
 
         run.status = "running"
         run.started_at = datetime.now(timezone.utc)
@@ -194,6 +195,11 @@ async def _execute_run(run_id: str) -> None:
 
         insight_row = None
         if final_state.get("final_insight"):
+            from sqlalchemy import delete
+            # Delete any existing insight for this RQ to avoid unique constraint violations
+            await db.execute(delete(Insight).where(Insight.rq_id == rq.id))
+            await db.flush()
+
             insight_row = Insight(
                 run_id=run_id,
                 rq_id=rq.id,
