@@ -37,9 +37,14 @@ class InsightOutput(BaseModel):
     confidence: str = Field(description="'high' | 'medium' | 'low', based on sample size / data quality caveats.")
 
 
-class VisualizationSpec(BaseModel):
-    chart_type: str = Field(description="'bar' | 'line' | 'scatter' | 'histogram' | 'heatmap' | 'box' | 'none'")
+class InteractiveChart(BaseModel):
+    chart_type: str = Field(description="'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'histogram'")
     title: str
-    x_label: str | None = None
-    y_label: str | None = None
-    rationale: str = Field(description="Why this chart type fits the finding.")
+    description: str = Field(description="Brief description of what this chart shows")
+    x_axis_key: str = Field(description="The key in the data objects to use for the X axis")
+    y_axis_keys: list[str] = Field(description="The keys in the data objects to use for the Y axis series")
+    data: list[dict] = Field(description="The actual data points to plot, e.g. [{'name': 'A', 'value': 10}, ...]")
+
+class VisualizationSpec(BaseModel):
+    charts: list[InteractiveChart] = Field(default=[], description="Up to 3 interactive charts with data points")
+    rationale: str = Field(description="Why these charts were chosen")

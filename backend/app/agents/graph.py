@@ -12,6 +12,7 @@ This graph runs once per ResearchQuestion, i.e. once per AnalysisRun:
                         not yet, retry -> code_corrector -> sandbox_execute (loop)
                         attempts exhausted -> give_up -> END
 """
+from typing import Literal
 from langgraph.graph import StateGraph, START, END
 
 from app.agents.state import AnalysisState
@@ -24,13 +25,18 @@ from app.agents.nodes.visualization_builder import visualization_builder
 
 
 async def give_up(state: AnalysisState) -> AnalysisState:
-    last_execution = state["execution_history"][-1]
+    last_execution = state["execution_history"][-1] if state.get("execution_history") else {"stderr": "Failed"}
     return {
         **state,
         "status": "failed",
         "error_traceback": last_execution["stderr"],
     }
 
+def route_start(state: AnalysisState) -> Literal["code_generator", "insight_writer"]:
+    """Conditional edge: bypass execution if it's a system_profile."""
+    if state["category"] == "system_profile":
+        return "insight_writer"
+    return "code_generator"
 
 def build_analysis_graph():
     graph = StateGraph(AnalysisState)
@@ -43,7 +49,14 @@ def build_analysis_graph():
     graph.add_node("visualization_builder", visualization_builder)
     graph.add_node("give_up", give_up)
 
-    graph.add_edge(START, "code_generator")
+    graph.add_conditional_edges(
+        START,
+        route_start,
+        {
+            "code_generator": "code_generator",
+            "insight_writer": "insight_writer",
+        },
+    )
     graph.add_edge("code_generator", "sandbox_execute")
 
     graph.add_conditional_edges(
@@ -74,3 +87,4 @@ async def run_analysis(initial_state: AnalysisState) -> AnalysisState:
     """Entry point called from the API/background task layer."""
     final_state = await analysis_graph.ainvoke(initial_state)
     return final_state
+

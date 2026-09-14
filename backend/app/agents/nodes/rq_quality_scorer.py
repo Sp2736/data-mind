@@ -17,7 +17,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from app.agents.schemas import ResearchQuestionItem
-from app.services.llm import get_llm
+from app.services.llm import get_llm, with_llm_retry
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,11 @@ async def score_research_questions(
     ]
 
     try:
-        result = await llm.ainvoke(messages)
+        @with_llm_retry
+        async def _invoke():
+            return await llm.ainvoke(messages)
+
+        result = await _invoke()
         parsed: RQScoreBatch | None = result["parsed"]
         if parsed is None:
             logger.warning("rq_quality_scorer: structured parse failed, skipping filter")

@@ -6,7 +6,7 @@ import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
-import { Dataset, getStoredDatasets } from "@/lib/mock/datasets";
+import { Dataset } from "@/lib/mock/datasets";
 import { listDatasets as apiListDatasets, deleteDataset } from "@/lib/api/datasets";
 import {
   UploadCloud,
@@ -53,12 +53,15 @@ export default function HomePage() {
           }));
           setDatasets(mapped);
           return;
+        } else if (isMounted && apiDatasets && apiDatasets.length === 0) {
+          setDatasets([]);
+          return;
         }
       } catch (err) {
-        console.warn("Could not fetch datasets from backend API, using local datasets:", err);
+        console.warn("Could not fetch datasets from backend API", err);
       }
       if (isMounted) {
-        setDatasets(getStoredDatasets());
+        setDatasets([]);
       }
     }
     loadDatasets();

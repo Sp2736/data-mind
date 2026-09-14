@@ -1,29 +1,21 @@
-"""Decides chart metadata (type/title/labels) for the run.
-
-The actual PNG is rendered by the sandboxed script itself (per the
-code_generator prompt's contract: `./output/chart.png`). This node just
-asks the LLM for a short, structured description of that chart for the
-`visualizations` table and the frontend — and skips the LLM call entirely
-if no chart was produced.
-"""
 import logging
 from pathlib import Path
 
 from app.agents.schemas import VisualizationSpec
 from app.agents.state import AnalysisState
-from app.services.llm import get_llm
+from app.services.llm import get_llm, with_llm_retry
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def visualization_builder(state: AnalysisState) -> AnalysisState:
-    execution = state["final_execution"]
-    chart_files = [f for f in execution["output_files"] if f.endswith((".png", ".jpg", ".jpeg"))]
+    execution = state.get("final_execution", {})
+    stdout = execution.get("stdout", "")
 
-    if not chart_files:
-        return {**state, "final_visualization": None}
-
+    # For system_profile, we might not have a successful execution if we just want to build it from stats.
+    # But usually system_profile still runs a dummy script to pass through the pipeline.
+    
     llm = get_llm(settings.insight_writer_model).with_structured_output(
         VisualizationSpec, include_raw=True
     )
@@ -31,42 +23,45 @@ async def visualization_builder(state: AnalysisState) -> AnalysisState:
     user_payload = {
         "question_text": state["question_text"],
         "category": state["category"],
-        "stdout": execution["stdout"],
+        "stdout": stdout,
+        "dataset_stats_summary": state["stats_summary"],
     }
+    
     messages = [
         {
             "role": "system",
             "content": (
-                "Given a research question and the printed output of the analysis that "
-                "produced an accompanying chart, describe that chart: type, title, axis "
-                "labels, and why that chart type fits."
+                "You are an expert data visualization designer. Based on the research question, the dataset statistics, "
+                "and the printed analysis output, design up to 3 interactive charts that best summarize the findings.\n"
+                "You must provide the ACTUAL DATA POINTS to plot. Extract these from the dataset statistics or stdout.\n"
+                "For system_profile, focus on the overall distribution of key numeric columns, class balances, or missing values.\n"
+                "For example, a bar chart data might look like: [{'category': 'A', 'count': 10}, {'category': 'B', 'count': 20}]."
             ),
         },
         {"role": "user", "content": str(user_payload)},
     ]
 
-    result = await llm.ainvoke(messages)
-    parsed: VisualizationSpec | None = result["parsed"]
-    usage = getattr(result["raw"], "usage_metadata", None) or {}
+    @with_llm_retry
+    async def _invoke():
+        return await llm.ainvoke(messages)
+
+    result = await _invoke()
+    parsed: VisualizationSpec | None = result.get("parsed")
+    usage = getattr(result.get("raw"), "usage_metadata", None) or {}
 
     visualization = None
     if parsed is not None:
         visualization = {
-            "chart_type": parsed.chart_type,
-            "chart_config": {
-                "title": parsed.title,
-                "x_label": parsed.x_label,
-                "y_label": parsed.y_label,
-                "rationale": parsed.rationale,
-            },
-            "chart_file_path": chart_files[0],
+            "chart_type": "interactive",
+            "chart_config": parsed.model_dump(),
+            "chart_file_path": None,
         }
     else:
-        logger.warning("visualization_builder: structured parse failed, keeping raw file only")
+        logger.warning("visualization_builder: structured parse failed")
         visualization = {
-            "chart_type": "unknown",
-            "chart_config": {},
-            "chart_file_path": chart_files[0],
+            "chart_type": "none",
+            "chart_config": {"charts": []},
+            "chart_file_path": None,
         }
 
     return {
@@ -77,3 +72,4 @@ async def visualization_builder(state: AnalysisState) -> AnalysisState:
         "completion_tokens": state.get("completion_tokens", 0) + usage.get("output_tokens", 0),
         "total_tokens": state.get("total_tokens", 0) + usage.get("total_tokens", 0),
     }
+

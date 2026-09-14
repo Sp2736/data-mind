@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 from app.agents.schemas import ResearchQuestionBatch
-from app.services.llm import get_llm
+from app.services.llm import get_llm, with_llm_retry
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,11 @@ async def generate_research_questions(
         {"role": "user", "content": str(user_payload)},
     ]
 
-    result = await llm.ainvoke(messages)
+    @with_llm_retry
+    async def _invoke():
+        return await llm.ainvoke(messages)
+
+    result = await _invoke()
     parsed: ResearchQuestionBatch = result["parsed"]
     raw = result["raw"]
 

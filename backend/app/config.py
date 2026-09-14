@@ -24,16 +24,12 @@ class Settings(BaseSettings):
     logs_dir: str = "../data/logs"
 
     # LLM
-    llm_provider: str = "ollama"  # switch to 'google'/'groq'/'openai'/'openrouter' when using API keys
-    ollama_base_url: str = "http://localhost:11434"
     google_api_key: str | None = None
-    groq_api_key: str | None = None
-    openai_api_key: str | None = None
     openrouter_api_key: str | None = None
-    question_generator_model: str = "qwen2.5:3b"
-    code_generator_model: str = "gemma3:4b"
-    code_corrector_model: str = "gemma3:4b"
-    insight_writer_model: str = "qwen2.5:3b"
+    question_generator_model: str = "google:gemini-3.1-flash-lite"
+    code_generator_model: str = "google:gemini-3.1-flash-lite"
+    code_corrector_model: str = "google:gemini-3.1-flash-lite"
+    insight_writer_model: str = "google:gemini-3.1-flash-lite"
     llm_temperature: float = 0.2
 
     langchain_tracing_v2: bool = False
