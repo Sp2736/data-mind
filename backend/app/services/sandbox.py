@@ -86,8 +86,10 @@ def _prepare_workdir(run_id: str, attempt: int, dataset_path: Path) -> tuple[Pat
     Returns (workdir, output_dir, local_data_path).
     The dataset is always copied (not symlinked) so it's safe for Docker
     bind-mounts on Windows where symlinks to host paths are unreliable.
+    Paths are resolved to absolute to avoid doubled-path bugs when subprocess
+    is launched with cwd=workdir.
     """
-    workdir = Path(settings.generated_code_dir) / run_id / f"attempt_{attempt}"
+    workdir = (Path(settings.generated_code_dir) / run_id / f"attempt_{attempt}").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     output_dir = workdir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -266,6 +268,8 @@ def run_in_sandbox(
         exit_code (int), stdout (str), stderr (str), duration_ms (int),
         succeeded (bool), output_files (list[str]), workdir (str)
     """
+    # Resolve to absolute path so reads work regardless of CWD
+    dataset_path = dataset_path.resolve()
     workdir, output_dir, local_data_path = _prepare_workdir(run_id, attempt, dataset_path)
     script_path = workdir / f"attempt_{attempt}.py"
 
