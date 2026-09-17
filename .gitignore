@@ -31,3 +31,5 @@ build/
 /backend/venv/
 /frontend/node_modules/
 /frontend/.next/
+
+more.txt
