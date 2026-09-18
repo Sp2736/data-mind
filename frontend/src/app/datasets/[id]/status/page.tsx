@@ -32,7 +32,8 @@ function isTerminal(s: RunStatus) {
   return isSuccess(s) || s === "failed";
 }
 
-interface EnrichedRun extends ApiAnalysisRun {
+interface EnrichedRun extends Omit<ApiAnalysisRun, "status"> {
+  status: RunStatus;
   question_text?: string;
   category?: "pre-processing" | "eda";
 }
@@ -55,17 +56,40 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
   const [runs, setRuns] = useState<EnrichedRun[]>([]);
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(true);
-  const [isPipelineFinished, setIsPipelineFinished] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Synchronous gate — set to true the moment all runs finish so that any
+  // already-queued setTimeout callbacks skip their fetch immediately.
+  const pipelineDoneRef = useRef(false);
+  const loggedCompletionRef = useRef(false);
+
+  // Directly derive pipeline completion from the runs list.
+  // Reactive to both WS events and API fetches instantly.
+  const isPipelineFinished = runs.length > 0 && runs.every(r => isTerminal(r.status as RunStatus));
+
+  // Sync completion ref, cancel timers, and log completion message
+  useEffect(() => {
+    if (isPipelineFinished) {
+      pipelineDoneRef.current = true;
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+      if (!loggedCompletionRef.current) {
+        loggedCompletionRef.current = true;
+        setConsoleLogs(prev => [...prev, `[pipeline] [${new Date().toLocaleTimeString()}] All runs finished. Navigate to Insights to see results.`]);
+      }
+    }
+  }, [isPipelineFinished]);
 
   // Fetch enriched runs (with question text attached).
-  // This is the single source of truth for isPipelineFinished — WS handlers
-  // call this after patching local state so the API always has the final word.
   const fetchRuns = useCallback(async () => {
+    // Skip if we already know the pipeline is done.
+    if (pipelineDoneRef.current) return;
+
     try {
       const [rawRuns, questions] = await Promise.all([
         listRuns(datasetId),
@@ -94,17 +118,6 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
       }));
 
       setRuns(enriched);
-
-      const allDone = enriched.length > 0 && enriched.every(r => isTerminal(r.status as RunStatus));
-      if (allDone) {
-        setIsPipelineFinished(true);
-        // Stop the fallback polling — no more work to do
-        if (pollRef.current) {
-          clearTimeout(pollRef.current);
-          pollRef.current = null;
-        }
-        addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`);
-      }
     } catch {
       /* silent — WS events will fill the gap */
     }
@@ -138,6 +151,18 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
   }, [datasetId, fetchRuns]);
 
   // WebSocket connection
+  // Debounce ref: collapses multiple rapid terminal-event fetchRuns calls into one.
+  const pendingFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleFetch = useCallback(() => {
+    if (pipelineDoneRef.current) return;
+    if (pendingFetchRef.current) clearTimeout(pendingFetchRef.current);
+    pendingFetchRef.current = setTimeout(() => {
+      pendingFetchRef.current = null;
+      fetchRuns();
+    }, 800);
+  }, [fetchRuns]);
+
   useEffect(() => {
     const token = typeof window !== "undefined"
       ? localStorage.getItem(STORAGE_KEY_TOKEN) ?? sessionStorage.getItem(STORAGE_KEY_TOKEN)
@@ -148,6 +173,11 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
 
     ws.onopen = () => {
       addLog(`[pipeline] [${ts()}] WebSocket connected — live run updates active.`);
+      // Cancel fallback polling now that the WS is live again.
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
     };
 
     ws.onmessage = (evt) => {
@@ -162,12 +192,12 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
           case "run_started":
             addLog(`[task] [${ts()}] Run ${run_id?.slice(-6)} → ${status ?? "updated"}${attempt ? ` (attempt ${attempt})` : ""}`);
             if (status) {
-              // Patch local state immediately for snappy UI, then let fetchRuns
-              // confirm completion from the API (avoids race with empty runs[]).
+              // Patch local state directly from the WS payload — no API call needed.
+              // WS is the live source of truth while connected; fetchRuns is only
+              // called for terminal events to confirm final state.
               setRuns(prev => prev.map(r =>
                 r.id === run_id ? { ...r, status: status as RunStatus, attempts: attempt ?? r.attempts } : r
               ));
-              setTimeout(() => fetchRuns(), 600);
             }
             break;
 
@@ -176,8 +206,9 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
             setRuns(prev => prev.map(r =>
               r.id === run_id ? { ...r, status: "completed" as RunStatus } : r
             ));
-            // Re-fetch from API — this is what actually sets isPipelineFinished
-            setTimeout(() => fetchRuns(), 600);
+            // Debounced fetch — confirms isPipelineFinished from API once all
+            // in-flight completions have settled (collapses bursts into one call).
+            scheduleFetch();
             break;
 
           case "run_failed":
@@ -185,7 +216,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
             setRuns(prev => prev.map(r =>
               r.id === run_id ? { ...r, status: "failed" as RunStatus, error_traceback } : r
             ));
-            setTimeout(() => fetchRuns(), 600);
+            scheduleFetch();
             break;
 
           case "code_generated":
@@ -216,10 +247,14 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
 
     ws.onclose = () => {
       addLog(`[pipeline] [${ts()}] WebSocket disconnected.`);
-      // Fall back to polling
-      const poll = () => {
-        fetchRuns();
-        pollRef.current = setTimeout(poll, 5000);
+      // Fall back to polling — schedule the *next* tick only after the
+      // current fetch resolves, so clearTimeout inside fetchRuns always wins.
+      const poll = async () => {
+        if (pipelineDoneRef.current) return;
+        await fetchRuns();
+        if (!pipelineDoneRef.current) {
+          pollRef.current = setTimeout(poll, 5000);
+        }
       };
       pollRef.current = setTimeout(poll, 5000);
     };
@@ -231,8 +266,9 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
     return () => {
       ws.close();
       if (pollRef.current) clearTimeout(pollRef.current);
+      if (pendingFetchRef.current) clearTimeout(pendingFetchRef.current);
     };
-  }, [datasetId, fetchRuns]);
+  }, [datasetId, fetchRuns, scheduleFetch]);
 
   const completedCount = runs.filter(r => isSuccess(r.status as RunStatus)).length;
   const failedCount = runs.filter(r => r.status === "failed").length;
