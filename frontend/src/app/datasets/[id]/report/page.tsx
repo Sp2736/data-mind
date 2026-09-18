@@ -1,57 +1,302 @@
 "use client";
 
-import React, { use, useState, useEffect } from "react";
+import React, { use, useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
-import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
-import { getDatasetById } from "@/lib/mock/datasets";
-import { getReportForDataset } from "@/lib/mock/reports";
-import { getDatasetProfile } from "@/lib/mock/datasetProfiles";
+import {
+  getDataset,
+  listInsights,
+  listQuestions,
+  getDatasetProfile,
+  getVisualization,
+  getReport,
+  buildReport,
+  ApiDataset,
+  ApiDatasetProfile,
+  ApiInsight,
+  ApiResearchQuestion,
+  ApiVisualization,
+  ApiReport,
+} from "@/lib/api/datasets";
 import {
   ArrowLeft,
   ChevronRight,
-  FileText,
+  Printer,
   Download,
-  CheckCircle2,
-  ListTodo,
-  ShieldCheck,
+  Sparkles,
+  FileText,
+  RotateCw,
+  Eye,
+  Code,
+  Loader2,
+  AlertCircle,
+  BarChart3,
   Calendar,
   Layers,
-  Sparkles,
-  Info,
-  Clock
+  CheckCircle2,
 } from "lucide-react";
+import { InsightVisualRenderer } from "@/components/charts/InsightChart";
+
+// ─── Main Executive Report Page ───────────────────────────────────────────────
+
+interface InsightBundle {
+  insight: ApiInsight;
+  question?: ApiResearchQuestion;
+  visual?: ApiVisualization | null;
+}
 
 export default function ExecutiveReportPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const datasetId = resolvedParams.id;
-  const dataset = getDatasetById(datasetId);
-  const report = getReportForDataset(datasetId, dataset?.filename);
-  const profile = getDatasetProfile(datasetId, dataset?.filename);
 
-  const [downloadingCleaned, setDownloadingCleaned] = useState<boolean>(false);
-  const [downloadingReport, setDownloadingReport] = useState<boolean>(false);
+  const [dataset, setDataset] = useState<ApiDataset | null>(null);
+  const [profile, setProfile] = useState<ApiDatasetProfile | null>(null);
+  const [report, setReport] = useState<ApiReport | null>(null);
+  const [bundles, setBundles] = useState<InsightBundle[]>([]);
+  const [markdownContent, setMarkdownContent] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<"rendered" | "source">("rendered");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!dataset || !report) {
+  const reportContainerRef = useRef<HTMLDivElement>(null);
+
+  // Generate markdown document from live pipeline data
+  const generateMarkdownReport = (
+    ds: ApiDataset,
+    prof: ApiDatasetProfile | null,
+    rep: ApiReport | null,
+    items: InsightBundle[]
+  ): string => {
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
+    const lines: string[] = [];
+
+    // Header
+    lines.push(`# DataMind Autonomous Analytics Executive Report: ${ds.filename}`);
+    lines.push(`**Date Generated:** ${dateStr}  `);
+    lines.push(`**Dataset Identifier:** \`${ds.id}\`  `);
+    lines.push(`**Verification:** Verified Autonomous Pipeline Ingestion & Statistical Analysis Complete  `);
+    lines.push("");
+
+    // Metadata Table
+    lines.push("## Dataset Overview");
+    lines.push("| Attribute | Value |");
+    lines.push("|---|---|");
+    lines.push(`| **Filename** | \`${ds.filename}\` |`);
+    lines.push(`| **Format** | ${ds.format.toUpperCase()} |`);
+    lines.push(`| **Total Records** | ${ds.row_count.toLocaleString()} rows |`);
+    lines.push(`| **Total Attributes** | ${ds.column_count} columns |`);
+    lines.push(`| **Domain Classification** | ${ds.primary_domain || "General Analytics"} |`);
+    lines.push(`| **Analysis Scope** | ${items.length} Evaluated Research Questions |`);
+    lines.push("");
+
+    // Section 1: Executive Summary
+    lines.push("## 1. Executive Summary");
+    if (rep?.overall_summary) {
+      lines.push(rep.overall_summary);
+    } else {
+      lines.push("The autonomous analytics pipeline successfully profiled and executed statistical analyses across the ingested schema, surfacing key distributions, correlation dynamics, and actionable segmentations.");
+    }
+    lines.push("");
+
+    // Section 2: Schema Profile & Quality Health
+    lines.push("## 2. Dataset Architecture & Schema Health");
+    if (prof?.schema_summary && prof.schema_summary.length > 0) {
+      lines.push("Below is the structural summary of dataset attributes, data types, and null coverage:");
+      lines.push("");
+      lines.push("| Column Name | Type | Unique Values | Missing Values (%) | Status |");
+      lines.push("|---|---|---|---|---|");
+      prof.schema_summary.slice(0, 15).forEach((col) => {
+        const nullPct = (col.null_percentage || 0).toFixed(1);
+        const status = col.null_count === 0 ? "Complete" : `${nullPct}% Null`;
+        lines.push(`| \`${col.column_name}\` | ${col.data_type} | ${col.unique_count.toLocaleString()} | ${col.null_count} (${nullPct}%) | ${status} |`);
+      });
+      if (prof.schema_summary.length > 15) {
+        lines.push(`| ... and ${prof.schema_summary.length - 15} more attributes | | | | |`);
+      }
+    } else {
+      lines.push(`- **Row Volume:** ${ds.row_count.toLocaleString()} records`);
+      lines.push(`- **Column Count:** ${ds.column_count} features`);
+    }
+    lines.push("");
+
+    // Section 3: Pre-processing & Quality Transformations
+    lines.push("## 3. Data Cleaning & Pre-processing Actions");
+    const cleaningBundles = items.filter(
+      (b) => (b.question?.category ?? b.insight.category) === "pre-processing"
+    );
+    if (rep?.cleaning_actions && rep.cleaning_actions.length > 0) {
+      rep.cleaning_actions.forEach((act, idx) => {
+        lines.push(`### Action #${idx + 1}: ${act.action_name}`);
+        lines.push(`- **Target Column:** \`${act.column_affected}\``);
+        lines.push(`- **Action Taken:** ${act.description}`);
+        lines.push(`- **Rationale:** ${act.rationale}`);
+        lines.push("");
+      });
+    } else if (cleaningBundles.length > 0) {
+      cleaningBundles.forEach((b, idx) => {
+        lines.push(`### Transformation #${idx + 1}: ${b.question?.question_text ?? "Data Treatment"}`);
+        lines.push(`${b.insight.summary_text}`);
+        if (b.insight.key_takeaways?.length > 0) {
+          lines.push("**Key Notes:**");
+          b.insight.key_takeaways.forEach((k) => lines.push(`- ${k}`));
+        }
+        lines.push("");
+      });
+    } else {
+      lines.push("All primary columns met quality baseline checks. No destructive column drops were mandated during preprocessing.");
+      lines.push("");
+    }
+
+    // Section 4: Key Statistical Findings (EDA)
+    lines.push("## 4. Key Statistical Findings & Exploratory Insights");
+    const edaBundles = items.filter(
+      (b) => (b.question?.category ?? b.insight.category) !== "pre-processing"
+    );
+    (edaBundles.length > 0 ? edaBundles : items).forEach((b, idx) => {
+      lines.push(`### Finding #${idx + 1}: ${b.question?.question_text ?? `Analysis ${b.insight.id.slice(-6)}`}`);
+      lines.push(`*Category: ${(b.question?.category ?? b.insight.category).toUpperCase()}*`);
+      lines.push("");
+      lines.push(`> ${b.insight.summary_text}`);
+      lines.push("");
+      if (b.insight.key_takeaways && b.insight.key_takeaways.length > 0) {
+        lines.push("**Analytical Takeaways:**");
+        b.insight.key_takeaways.forEach((k) => lines.push(`- ${k}`));
+        lines.push("");
+      }
+    });
+
+    // Section 5: Comparative Summary & Strategic Conclusions
+    lines.push("## 5. Summary & Strategic Recommendations");
+    lines.push("1. **Data Utilization:** Leverage identified correlations and segmentations to drive targeted operational decisions.");
+    lines.push("2. **Pipeline Repeatability:** Generated code artifacts and visualization schemas are persisted for automated reproducibility.");
+    lines.push("3. **Monitoring:** Continue tracking anomalous columns and missing value trends across subsequent dataset ingestions.");
+    lines.push("");
+    lines.push("---");
+    lines.push(`*Report compiled autonomously by DataMind Engine. All rights reserved © ${new Date().getFullYear()}.*`);
+
+    return lines.join("\n");
+  };
+
+  const loadAllData = async (forceRebuild = false) => {
+    setError(null);
+    try {
+      const [ds, prof, insights, questions] = await Promise.all([
+        getDataset(datasetId),
+        getDatasetProfile(datasetId).catch(() => null),
+        listInsights(datasetId),
+        listQuestions(datasetId).catch(() => [] as ApiResearchQuestion[]),
+      ]);
+
+      setDataset(ds);
+      setProfile(prof);
+
+      const qMap = Object.fromEntries(questions.map((q) => [q.id, q]));
+
+      const enriched: InsightBundle[] = await Promise.all(
+        insights.map(async (insight) => {
+          const visual = await getVisualization(datasetId, insight.id);
+          return { insight, question: qMap[insight.rq_id], visual };
+        })
+      );
+      setBundles(enriched);
+
+      // Fetch or build the executive report
+      let rep: ApiReport | null = null;
+      if (forceRebuild) {
+        setIsRegenerating(true);
+        rep = await buildReport(datasetId);
+      } else {
+        try {
+          rep = await getReport(datasetId);
+        } catch {
+          // If not built yet, build it
+          rep = await buildReport(datasetId).catch(() => null);
+        }
+      }
+      setReport(rep);
+
+      const md = generateMarkdownReport(ds, prof, rep, enriched);
+      setMarkdownContent(md);
+      setIsLoading(false);
+      setIsRegenerating(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+      setIsLoading(false);
+      setIsRegenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAllData(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
+
+  // Trigger PDF print
+  const handlePrintPDF = () => {
+    window.print();
+  };
+
+  // Download raw Markdown file
+  const handleDownloadMarkdown = () => {
+    const blob = new Blob([markdownContent], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `datamind_report_${dataset?.filename.replace(/\.[^/.]+$/, "") || datasetId}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  if (isLoading) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
+          <Header />
+          <main className="flex-1 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-7 h-7 text-indigo-500 animate-spin" />
+            <p className="text-sm text-stone-400 font-medium animate-pulse">Compiling Executive Report &amp; Visualizations…</p>
+          </main>
+        </div>
+      </AuthGuard>
+    );
+  }
+
+  if (error || !dataset) {
     return (
       <AuthGuard>
         <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100">
           <Header />
           <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-16 text-center">
-            <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-8 shadow-sm">
-              <h2 className="text-xl font-semibold mb-2">Report Not Found</h2>
-              <p className="text-sm text-stone-500 dark:text-stone-400 mb-6">
-                The report data for dataset ID <code className="bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded">{datasetId}</code> could not be located.
-              </p>
-              <Link
-                href="/home"
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Return to Workspace</span>
-              </Link>
+            <div className="bg-white dark:bg-[#191921] border border-rose-200 dark:border-rose-800/40 rounded-3xl p-8 shadow-sm">
+              <AlertCircle className="w-8 h-8 text-rose-500 mx-auto mb-3" />
+              <h2 className="text-xl font-bold mb-2">Unable to load report</h2>
+              <p className="text-sm text-stone-500 dark:text-stone-400 mb-6">{error || "Dataset not found"}</p>
+              <div className="flex justify-center gap-3">
+                <Link
+                  href={`/datasets/${datasetId}/insights`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-xl text-xs font-semibold"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> Back to Insights
+                </Link>
+                <button
+                  onClick={() => loadAllData(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700"
+                >
+                  <RotateCw className="w-3.5 h-3.5" /> Retry
+                </button>
+              </div>
             </div>
           </main>
         </div>
@@ -59,294 +304,280 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
     );
   }
 
-  // Convert array of sample records into CSV string
-  const convertToCSV = (rows: Record<string, any>[]): string => {
-    if (!rows || rows.length === 0) return "";
-    const headers = Object.keys(rows[0]);
-    const csvRows = [
-      headers.join(","), // header row
-      ...rows.map(row => 
-        headers.map(fieldName => {
-          const value = row[fieldName];
-          const escaped = ("" + (value ?? "")).replace(/"/g, '\\"');
-          return `"${escaped}"`;
-        }).join(",")
-      )
-    ];
-    return csvRows.join("\n");
-  };
-
-  // Helper to trigger browser downloads of text blobs
-  const triggerBlobDownload = (content: string, filename: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // Download cleaned dataset file
-  const handleDownloadDataset = () => {
-    setDownloadingCleaned(true);
-    setTimeout(() => {
-      if (dataset.format === "csv") {
-        const csvContent = convertToCSV(profile.sample_rows);
-        triggerBlobDownload(csvContent, `${dataset.filename.replace('.csv', '')}_cleaned.csv`, "text/csv;charset=utf-8;");
-      } else {
-        const jsonContent = JSON.stringify(profile.sample_rows, null, 2);
-        triggerBlobDownload(jsonContent, `${dataset.filename.replace('.json', '')}_cleaned.json`, "application/json;charset=utf-8;");
-      }
-      setDownloadingCleaned(false);
-    }, 800);
-  };
-
-  // Download summary report in Markdown
-  const handleDownloadReport = () => {
-    setDownloadingReport(true);
-    setTimeout(() => {
-      const reportMarkdown = `# DataMind Executive Audit Report: ${dataset.filename}
-Date Generated: ${new Date().toLocaleDateString()}
-Status: Verified Data Pipeline Ingestion Complete
-
-## 1. Executive Summary
-${report.overall_summary}
-
-## 2. Dataset Profile Information
-- **Total Ingested Rows:** ${dataset.row_count.toLocaleString()}
-- **Total Columns:** ${dataset.column_count}
-- **Ingestion Size:** ${(dataset.file_size_bytes / (1024 * 1024)).toFixed(1)} MB
-- **Primary Domain:** ${dataset.primary_domain || "General"}
-
-## 3. Data Pre-processing & Cleaning Logs
-DataMind resolved categorical anomalies, missing data elements, and outlier properties according to the following log list:
-
-${report.cleaning_actions.map((act, idx) => `### Action #${idx + 1}: ${act.action_name}
-- **Affected Column(s):** ${act.column_affected}
-- **Details:** ${act.description}
-- **Rationale:** ${act.rationale}
-`).join("\n")}
-
----
-Report compiled autonomously by DataMind. Copyright (c) 2026. All rights reserved.
-`;
-      triggerBlobDownload(reportMarkdown, `datamind_report_${datasetId}.md`, "text/markdown;charset=utf-8;");
-      setDownloadingReport(false);
-    }, 800);
-  };
-
   return (
     <AuthGuard>
-      <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100 pb-20">
-        <Header />
+      <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100 pb-20 print:bg-white print:text-black print:pb-0">
+        
+        {/* Navigation & Header (Hidden on Print) */}
+        <div className="print:hidden">
+          <Header />
 
-        {/* Stage Progression Tracker */}
-        <div className="border-b border-stone-200/60 dark:border-stone-800/80 bg-white/70 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between overflow-x-auto gap-4">
-            <Link
-              href={`/datasets/${datasetId}/insights`}
-              className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200 transition-colors shrink-0"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Insights</span>
-            </Link>
-            
-            <div className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-xs text-stone-400 shrink-0">
-              <Link href={`/datasets/${datasetId}`} className="hover:text-stone-600 dark:hover:text-stone-300">1. Data Profile</Link>
-              <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <Link href={`/datasets/${datasetId}/rqs`} className="hover:text-stone-600 dark:hover:text-stone-300">2. Research Questions</Link>
-              <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <Link href={`/datasets/${datasetId}/status`} className="hover:text-stone-600 dark:hover:text-stone-300">3. Execution Logs</Link>
-              <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <Link href={`/datasets/${datasetId}/insights`} className="hover:text-stone-600 dark:hover:text-stone-300">4. Analysis Insights</Link>
-              <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <span className="font-semibold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40">5. Executive Report</span>
+          {/* Breadcrumb */}
+          <div className="border-b border-stone-200/60 dark:border-stone-800/80 bg-white/70 dark:bg-[#191921]/60 backdrop-blur-md sticky top-16 z-20">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between overflow-x-auto gap-4">
+              <Link
+                href={`/datasets/${datasetId}/insights`}
+                className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200 transition-colors shrink-0"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Insights</span>
+              </Link>
+              
+              <div className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-xs text-stone-400 shrink-0">
+                <Link href={`/datasets/${datasetId}`} className="hover:text-stone-600 dark:hover:text-stone-300">1. Data Profile</Link>
+                <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
+                <Link href={`/datasets/${datasetId}/rqs`} className="hover:text-stone-600 dark:hover:text-stone-300">2. Research Questions</Link>
+                <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
+                <Link href={`/datasets/${datasetId}/status`} className="hover:text-stone-600 dark:hover:text-stone-300">3. Execution Logs</Link>
+                <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
+                <Link href={`/datasets/${datasetId}/insights`} className="hover:text-stone-600 dark:hover:text-stone-300">4. Analysis Insights</Link>
+                <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
+                <span className="font-semibold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40">5. Executive Report</span>
+              </div>
+              
+              <div className="w-10 sm:w-20 shrink-0" />
             </div>
-            
-            <div className="w-10 sm:w-20 shrink-0" />
           </div>
         </div>
 
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
+        <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6 print:max-w-none print:p-0 print:m-0">
           
-          {/* Main Title Header */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Badge variant="indigo" icon={<ShieldCheck className="w-3 h-3" />}>
-                FR-OUT-01 – 03
-              </Badge>
-              <span className="text-xs text-stone-400 font-medium">Compliance-Verified Audit Report</span>
+          {/* Top Actions Panel (Hidden on Print) */}
+          <div className="print:hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 shadow-sm">
+            <div>
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                <Badge variant="indigo" icon={<Sparkles className="w-3 h-3" />}>
+                  Executive Synthesis
+                </Badge>
+                <span className="text-xs text-stone-400 font-medium">
+                  {bundles.length} insights synthesized • Markdown + Chart Visualizations
+                </span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                Executive Audit &amp; Analytics Report
+              </h1>
+              <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-0.5">
+                Formatted Markdown document ready for executive review or PDF export.
+              </p>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900 dark:text-stone-50">
-              Executive Audit &amp; Clean Summary
-            </h1>
-            <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-1">
-              Download the treated csv schema or export the compile-verified analytical executive brief.
-            </p>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {/* View Switcher */}
+              <div className="inline-flex rounded-xl p-1 bg-stone-100 dark:bg-stone-800 border border-stone-200/60 dark:border-stone-700 text-xs font-semibold">
+                <button
+                  onClick={() => setActiveTab("rendered")}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    activeTab === "rendered"
+                      ? "bg-white dark:bg-stone-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-stone-500 hover:text-stone-800 dark:text-stone-400"
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Rendered</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab("source")}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    activeTab === "source"
+                      ? "bg-white dark:bg-stone-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-stone-500 hover:text-stone-800 dark:text-stone-400"
+                  }`}
+                >
+                  <Code className="w-3.5 h-3.5" />
+                  <span>Markdown</span>
+                </button>
+              </div>
+
+              {/* Regenerate */}
+              <button
+                onClick={() => loadAllData(true)}
+                disabled={isRegenerating}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-stone-200 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors disabled:opacity-50 cursor-pointer"
+                title="Regenerate Executive Summary"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">Regenerate</span>
+              </button>
+
+              {/* Download MD */}
+              <button
+                onClick={handleDownloadMarkdown}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-stone-200 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Download .MD</span>
+              </button>
+
+              {/* Download as PDF Button */}
+              <button
+                onClick={handlePrintPDF}
+                className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100 dark:shadow-none hover:shadow-lg cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Download as PDF</span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            
-            {/* Left: Overall Summary & Logs timeline (Spans 2/3) */}
-            <div className="lg:col-span-2 flex flex-col gap-6">
-              
-              {/* Executive Summary Card */}
-              <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-7 shadow-sm space-y-4">
-                <h3 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                  <span>Executive Summary Narrative</span>
-                </h3>
-                <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 leading-relaxed font-semibold">
-                  {report.overall_summary}
-                </p>
-                <div className="pt-4 border-t border-stone-100 dark:border-stone-800 flex flex-wrap gap-4 text-xs font-semibold text-stone-500">
-                  <span className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                    <span>Audit Status: Passed</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-stone-450" />
-                    <span>Date: {new Date().toLocaleDateString()}</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-stone-450" />
-                    <span>System Time: 2026-08-02</span>
-                  </span>
+          {/* Rendered Document Container */}
+          <div
+            ref={reportContainerRef}
+            className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-10 shadow-sm print:border-none print:shadow-none print:p-6 print:m-0"
+          >
+            {activeTab === "source" ? (
+              <div>
+                <div className="flex items-center justify-between pb-3 mb-4 border-b border-stone-200 dark:border-stone-800">
+                  <span className="text-xs font-mono font-bold text-stone-400 uppercase">Markdown Source Content</span>
+                  <span className="text-[10px] text-stone-400 font-mono">{markdownContent.length} characters</span>
                 </div>
+                <textarea
+                  readOnly
+                  value={markdownContent}
+                  className="w-full h-[650px] font-mono text-xs p-4 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl focus:outline-hidden resize-y text-stone-800 dark:text-stone-200"
+                />
               </div>
-
-              {/* Cleaning Actions Timeline (Screen-9) */}
-              <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-7 shadow-sm space-y-6">
-                <h3 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
-                  <ListTodo className="w-5 h-5 text-purple-600 dark:text-purple-400 shrink-0" />
-                  <span>Preprocessing &amp; Ingestion Cleaning Timeline</span>
-                </h3>
+            ) : (
+              <div className="space-y-8">
                 
-                <div className="relative pl-6 border-l border-stone-200 dark:border-stone-800 space-y-8 ml-3 py-1">
-                  {report.cleaning_actions.map((act, idx) => (
-                    <div key={idx} className="relative group">
-                      
-                      {/* Timeline dot */}
-                      <span className="absolute -left-[31px] top-1 w-4.5 h-4.5 rounded-full border-2 border-white dark:border-stone-900 bg-purple-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">
-                        {idx + 1}
-                      </span>
-                      
-                      <div className="space-y-1.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-xs sm:text-sm font-bold text-stone-850 dark:text-stone-100">
-                            {act.action_name}
-                          </h4>
-                          <span className="inline-flex text-[9px] font-extrabold text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 border border-purple-100 dark:border-purple-900/40 px-2 py-0.5 rounded-md">
-                            Column: {act.column_affected}
-                          </span>
-                        </div>
-                        <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed font-semibold">
-                          {act.description}
+                {/* Print Branded Header */}
+                <div className="border-b border-stone-200 dark:border-stone-800 pb-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white font-black flex items-center justify-center text-sm shadow-sm">
+                        DM
+                      </div>
+                      <div>
+                        <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white tracking-tight">
+                          DataMind Executive Report
+                        </h2>
+                        <p className="text-xs text-stone-500 dark:text-stone-400 font-medium">
+                          Automated Analytics &amp; Empirical Dataset Audit
                         </p>
-                        <div className="bg-stone-50 dark:bg-stone-900/40 border border-stone-100 dark:border-stone-850 rounded-xl p-3 text-[11px] text-stone-500 leading-relaxed">
-                          <span className="font-extrabold uppercase text-[9px] text-stone-400 tracking-wider block mb-0.5">Pipeline Rationale</span>
-                          {act.rationale}
+                      </div>
+                    </div>
+                    <div className="text-right text-[11px] text-stone-400 font-medium">
+                      <p>Generated on {new Date().toLocaleDateString()}</p>
+                      <p className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">{dataset.filename}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Styled Markdown Content */}
+                <div className="prose prose-stone dark:prose-invert max-w-none text-stone-800 dark:text-stone-200 leading-relaxed text-sm print:text-xs">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="text-xl sm:text-2xl font-black tracking-tight text-stone-900 dark:text-white mb-4 pb-2 border-b border-stone-200 dark:border-stone-800">
+                          {children}
+                        </h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white mt-8 mb-3 flex items-center gap-2 pb-1.5 border-b border-stone-100 dark:border-stone-800/60">
+                          <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                          <span>{children}</span>
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-bold text-stone-850 dark:text-stone-100 mt-5 mb-2">
+                          {children}
+                        </h3>
+                      ),
+                      p: ({ children }) => (
+                        <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 leading-relaxed mb-3">
+                          {children}
+                        </p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm text-stone-600 dark:text-stone-300 mb-4">
+                          {children}
+                        </ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="list-decimal pl-5 space-y-1 text-xs sm:text-sm text-stone-600 dark:text-stone-300 mb-4">
+                          {children}
+                        </ol>
+                      ),
+                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 px-4 py-2.5 rounded-r-2xl my-3 text-xs sm:text-sm text-stone-700 dark:text-stone-200 italic font-medium">
+                          {children}
+                        </blockquote>
+                      ),
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-4 rounded-2xl border border-stone-200/80 dark:border-stone-800">
+                          <table className="w-full text-left text-xs border-collapse">
+                            {children}
+                          </table>
                         </div>
-                      </div>
-
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-
-            {/* Right: Export Panel (Screen-8) (Spans 1/3) */}
-            <div className="lg:col-span-1 flex flex-col gap-6">
-              
-              {/* Profile Card snippet */}
-              <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 shadow-sm space-y-4">
-                <h4 className="text-xs uppercase tracking-wider font-extrabold text-stone-400 flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Target profile summary</span>
-                </h4>
-                <div className="space-y-3 font-semibold text-xs">
-                  <div className="flex justify-between pb-2.5 border-b border-stone-100 dark:border-stone-800/40">
-                    <span className="text-stone-500">Dataset File</span>
-                    <span className="text-stone-850 dark:text-stone-150 truncate max-w-[150px]">{dataset.filename}</span>
-                  </div>
-                  <div className="flex justify-between pb-2.5 border-b border-stone-100 dark:border-stone-800/40">
-                    <span className="text-stone-500">Record format</span>
-                    <span className="text-stone-850 dark:text-stone-150 uppercase">{dataset.format}</span>
-                  </div>
-                  <div className="flex justify-between pb-2.5 border-b border-stone-100 dark:border-stone-800/40">
-                    <span className="text-stone-500">Row volume</span>
-                    <span className="text-stone-850 dark:text-stone-150">{dataset.row_count.toLocaleString()} rows</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-stone-500">Primary domain</span>
-                    <span className="text-stone-850 dark:text-stone-150">{dataset.primary_domain || "General"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Export Panel controls */}
-              <div className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 shadow-sm space-y-6">
-                <div>
-                  <h4 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2">
-                    <Download className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                    <span>Audit Export Panel</span>
-                  </h4>
-                  <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
-                    Trigger direct downloads of the compliance-treated datasets or compile executive summaries.
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-3.5">
-                  {/* Cleaned Dataset trigger */}
-                  <button
-                    onClick={handleDownloadDataset}
-                    disabled={downloadingCleaned}
-                    className="w-full inline-flex items-center justify-between px-5 py-3 bg-transparent hover:bg-stone-50 dark:hover:bg-stone-800/80 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs font-bold text-stone-800 dark:text-stone-200 transition-all cursor-pointer disabled:opacity-50"
+                      ),
+                      thead: ({ children }) => (
+                        <thead className="bg-stone-50 dark:bg-stone-900/80 border-b border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-300 font-bold uppercase text-[10px] tracking-wider">
+                          {children}
+                        </thead>
+                      ),
+                      th: ({ children }) => <th className="py-2.5 px-3.5 font-bold">{children}</th>,
+                      td: ({ children }) => (
+                        <td className="py-2 px-3.5 border-b border-stone-100 dark:border-stone-850 text-stone-600 dark:text-stone-300 text-xs">
+                          {children}
+                        </td>
+                      ),
+                      code: ({ children }) => (
+                        <code className="bg-stone-100 dark:bg-stone-800 text-indigo-600 dark:text-indigo-400 font-mono text-[11px] px-1.5 py-0.5 rounded-md font-semibold">
+                          {children}
+                        </code>
+                      ),
+                    }}
                   >
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                      <div className="text-left">
-                        <span>{downloadingCleaned ? "Compiling Cleaned..." : `Cleaned ${dataset.format.toUpperCase()} Sample`}</span>
-                        <span className="text-[9px] text-stone-400 block font-semibold">{dataset.filename.replace(`.${dataset.format}`, '')}_cleaned.{dataset.format}</span>
-                      </div>
-                    </div>
-                    <Download className="w-4 h-4 text-stone-400" />
-                  </button>
-
-                  {/* Summary Executive Document trigger */}
-                  <button
-                    onClick={handleDownloadReport}
-                    disabled={downloadingReport}
-                    className="w-full inline-flex items-center justify-between px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-indigo-100 dark:shadow-none hover:shadow-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Sparkles className="w-5 h-5 shrink-0" />
-                      <div className="text-left">
-                        <span>{downloadingReport ? "Compiling Report..." : "Download Report"}</span>
-                        <span className="text-[9px] text-indigo-200 block font-semibold">datamind_report_${datasetId}.md</span>
-                      </div>
-                    </div>
-                    <Download className="w-4 h-4 text-indigo-100" />
-                  </button>
+                    {markdownContent}
+                  </ReactMarkdown>
                 </div>
 
-                {/* Integration notice */}
-                <div className="bg-stone-50 dark:bg-stone-900 border border-stone-100 dark:border-stone-850 rounded-2xl p-4 flex gap-3 text-[10px] text-stone-500 leading-relaxed font-semibold">
-                  <Info className="w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-extrabold uppercase text-stone-450 block mb-0.5">Pipeline Integration</span>
-                    These files are generated on-the-fly directly in the browser sandbox to ensure secure, local-compliance workspace execution.
+                {/* Visualizations Support Section */}
+                {bundles.some((b) => b.visual) && (
+                  <div className="mt-10 pt-8 border-t border-stone-200 dark:border-stone-800 page-break-before">
+                    <div className="flex items-center gap-2 mb-4">
+                      <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                      <h3 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white">
+                        Recommended Analytical Visualizations
+                      </h3>
+                    </div>
+                    <p className="text-xs text-stone-500 dark:text-stone-400 mb-6">
+                      Supporting chart graphics generated during sandbox execution to visually substantiate the statistical findings and comparative distributions.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {bundles
+                        .filter((b) => b.visual)
+                        .map((bundle, idx) => {
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-3xl border border-stone-200/80 dark:border-stone-800 bg-white dark:bg-[#191921] p-5 shadow-xs flex flex-col gap-3 print:border-stone-300 print:shadow-none print:break-inside-avoid"
+                            >
+                              <div className="flex items-center justify-between gap-2 border-b border-stone-100 dark:border-stone-800/60 pb-2">
+                                <span className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">
+                                  Chart #{idx + 1}
+                                </span>
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 uppercase">
+                                  {bundle.question?.category ?? bundle.insight.category}
+                                </span>
+                              </div>
+                              <h4 className="text-xs font-bold text-stone-900 dark:text-white leading-snug line-clamp-2">
+                                {bundle.question?.question_text ?? "Empirical Chart"}
+                              </h4>
+                              <div className="mt-1">
+                                <InsightVisualRenderer visual={bundle.visual!} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
-                </div>
+                )}
 
               </div>
-
-            </div>
-
+            )}
           </div>
 
         </main>

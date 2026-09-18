@@ -246,3 +246,30 @@ export async function getVisualization(
     return null;
   }
 }
+
+// ─── Report helpers ───────────────────────────────────────────────────────────
+
+export interface ApiReport {
+  id: string;
+  dataset_id: string;
+  overall_summary: string;
+  cleaning_actions: Array<{
+    action_name: string;
+    column_affected: string;
+    description: string;
+    rationale: string;
+  }>;
+  created_at: string;
+}
+
+/** Get existing generated executive report. */
+export async function getReport(datasetId: string): Promise<ApiReport> {
+  return fetchApi<ApiReport>(`/datasets/${datasetId}/report`);
+}
+
+/** Trigger generating / compiling the executive report from insights. */
+export async function buildReport(datasetId: string): Promise<ApiReport> {
+  return fetchApi<ApiReport>(`/datasets/${datasetId}/report`, {
+    method: "POST",
+  });
+}

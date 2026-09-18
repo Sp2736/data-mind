@@ -49,7 +49,16 @@ async def build_report(
         f"{bullet_points}"
     )
     response = await llm.ainvoke(prompt)
-    overall_summary = response.content if hasattr(response, "content") else str(response)
+    raw_content = response.content if hasattr(response, "content") else str(response)
+    if isinstance(raw_content, list):
+        overall_summary = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in raw_content
+        ).strip()
+    elif isinstance(raw_content, str):
+        overall_summary = raw_content.strip()
+    else:
+        overall_summary = str(raw_content).strip()
 
     existing = await db.execute(select(Report).where(Report.dataset_id == dataset_id))
     report = existing.scalar_one_or_none()
