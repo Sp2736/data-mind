@@ -22,7 +22,15 @@ import {
 const STORAGE_KEY_TOKEN = "datamind_auth_token";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 
-type RunStatus = ApiAnalysisRun["status"];
+type RunStatus = ApiAnalysisRun["status"] | "succeeded";
+
+function isSuccess(s: RunStatus) {
+  return s === "completed" || s === "succeeded";
+}
+
+function isTerminal(s: RunStatus) {
+  return isSuccess(s) || s === "failed";
+}
 
 interface EnrichedRun extends ApiAnalysisRun {
   question_text?: string;
@@ -31,7 +39,8 @@ interface EnrichedRun extends ApiAnalysisRun {
 
 function statusIcon(s: RunStatus) {
   switch (s) {
-    case "completed": return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+    case "completed":
+    case "succeeded": return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
     case "failed": return <XCircle className="w-3.5 h-3.5 text-rose-500" />;
     case "running": return <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />;
     default: return <Clock className="w-3.5 h-3.5 text-stone-400" />;
@@ -53,7 +62,9 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch enriched runs (with question text attached)
+  // Fetch enriched runs (with question text attached).
+  // This is the single source of truth for isPipelineFinished — WS handlers
+  // call this after patching local state so the API always has the final word.
   const fetchRuns = useCallback(async () => {
     try {
       const [rawRuns, questions] = await Promise.all([
@@ -84,9 +95,14 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
 
       setRuns(enriched);
 
-      const allDone = enriched.length > 0 && enriched.every(r => r.status === "completed" || r.status === "failed");
+      const allDone = enriched.length > 0 && enriched.every(r => isTerminal(r.status as RunStatus));
       if (allDone) {
         setIsPipelineFinished(true);
+        // Stop the fallback polling — no more work to do
+        if (pollRef.current) {
+          clearTimeout(pollRef.current);
+          pollRef.current = null;
+        }
         addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`);
       }
     } catch {
@@ -146,42 +162,30 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
           case "run_started":
             addLog(`[task] [${ts()}] Run ${run_id?.slice(-6)} → ${status ?? "updated"}${attempt ? ` (attempt ${attempt})` : ""}`);
             if (status) {
-              setRuns(prev => {
-                const updated = prev.map(r => r.id === run_id ? { ...r, status: status as RunStatus, attempts: attempt ?? r.attempts } : r);
-                const allDone = updated.length > 0 && updated.every(r => r.status === "completed" || r.status === "failed");
-                if (allDone) {
-                  setIsPipelineFinished(true);
-                  setTimeout(() => addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`), 100);
-                }
-                return updated;
-              });
+              // Patch local state immediately for snappy UI, then let fetchRuns
+              // confirm completion from the API (avoids race with empty runs[]).
+              setRuns(prev => prev.map(r =>
+                r.id === run_id ? { ...r, status: status as RunStatus, attempts: attempt ?? r.attempts } : r
+              ));
+              setTimeout(() => fetchRuns(), 600);
             }
             break;
 
           case "run_completed":
             addLog(`[pipeline] [${ts()}] ✓ Run ${run_id?.slice(-6)} completed successfully.`);
-            setRuns(prev => {
-              const updated = prev.map(r => r.id === run_id ? { ...r, status: "completed" as RunStatus } : r);
-              const allDone = updated.length > 0 && updated.every(r => r.status === "completed" || r.status === "failed");
-              if (allDone) {
-                setIsPipelineFinished(true);
-                setTimeout(() => addLog(`[pipeline] [${ts()}] All runs finished. Navigate to Insights to see results.`), 100);
-              }
-              return updated;
-            });
+            setRuns(prev => prev.map(r =>
+              r.id === run_id ? { ...r, status: "completed" as RunStatus } : r
+            ));
+            // Re-fetch from API — this is what actually sets isPipelineFinished
+            setTimeout(() => fetchRuns(), 600);
             break;
 
           case "run_failed":
             addLog(`[error] [${ts()}] Run ${run_id?.slice(-6)} FAILED${error_traceback ? `: ${error_traceback.split("\n")[0]}` : "."}`);
-            setRuns(prev => {
-              const updated = prev.map(r => r.id === run_id ? { ...r, status: "failed" as RunStatus, error_traceback } : r);
-              const allDone = updated.length > 0 && updated.every(r => r.status === "completed" || r.status === "failed");
-              if (allDone) {
-                setIsPipelineFinished(true);
-                setTimeout(() => addLog(`[pipeline] [${ts()}] All runs finished (some failed). Check results.`), 100);
-              }
-              return updated;
-            });
+            setRuns(prev => prev.map(r =>
+              r.id === run_id ? { ...r, status: "failed" as RunStatus, error_traceback } : r
+            ));
+            setTimeout(() => fetchRuns(), 600);
             break;
 
           case "code_generated":
@@ -230,7 +234,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
     };
   }, [datasetId, fetchRuns]);
 
-  const completedCount = runs.filter(r => r.status === "completed").length;
+  const completedCount = runs.filter(r => isSuccess(r.status as RunStatus)).length;
   const failedCount = runs.filter(r => r.status === "failed").length;
   const progressPercent = runs.length > 0 ? Math.floor(((completedCount + failedCount) / runs.length) * 100) : 0;
 
@@ -253,7 +257,16 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
               <span className="font-semibold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40">3. Execution Logs</span>
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <span className="cursor-not-allowed">4. Analysis Insights</span>
+              {isPipelineFinished ? (
+                <Link
+                  href={`/datasets/${datasetId}/insights`}
+                  className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+                >
+                  4. Analysis Insights ✓
+                </Link>
+              ) : (
+                <span className="cursor-not-allowed">4. Analysis Insights</span>
+              )}
             </div>
             <div className="w-10 sm:w-20 shrink-0" />
           </div>
@@ -266,7 +279,11 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-50 flex items-center gap-2">
-                  <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400 animate-pulse shrink-0" />
+                  <Activity className={`w-6 h-6 shrink-0 ${
+                    isPipelineFinished
+                      ? "text-emerald-500"
+                      : "text-indigo-600 dark:text-indigo-400 animate-pulse"
+                  }`} />
                   <span>Sandbox Code Execution</span>
                 </h1>
                 <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-0.5">
@@ -320,7 +337,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
                 </div>
               ) : runs.map((run) => {
                 const isRunning = run.status === "running";
-                const isComplete = run.status === "completed";
+                const isComplete = isSuccess(run.status as RunStatus);
                 const isFailed = run.status === "failed";
                 const isPre = run.category === "pre-processing";
 

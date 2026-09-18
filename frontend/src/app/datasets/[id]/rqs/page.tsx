@@ -42,6 +42,17 @@ function QualityBadge({ score, label }: { score: number; label: string | null })
   );
 }
 
+// Maps whatever category string the LLM stored to one of the two UI groups.
+const EDA_CATEGORIES = new Set(["eda", "correlation", "trend", "anomaly", "segmentation", "distribution", "comparison", "statistical", "summary"]);
+const CLEANING_CATEGORIES = new Set(["pre-processing", "preprocessing", "cleaning", "data_cleaning", "data-cleaning", "pre_processing"]);
+
+function resolveTabGroup(category: string): "pre-processing" | "eda" {
+  const c = (category ?? "").toLowerCase().trim();
+  if (CLEANING_CATEGORIES.has(c)) return "pre-processing";
+  if (c.includes("clean") || c.includes("preprocess") || c.includes("pre-process")) return "pre-processing";
+  return "eda"; // EDA is the default — no insight is silently lost
+}
+
 function getOutputTypeConfig(type: string) {
   switch (type) {
     case "chart":
@@ -142,10 +153,10 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
     }
   };
 
-  const preprocessingQuestions = questions.filter(q => q.category === "pre-processing");
-  const edaQuestions = questions.filter(q => q.category === "eda");
+  const preprocessingQuestions = questions.filter(q => resolveTabGroup(q.category) === "pre-processing");
+  const edaQuestions = questions.filter(q => resolveTabGroup(q.category) === "eda");
   const displayedQuestions = questions.filter(q =>
-    activeTab === "all" ? true : q.category === activeTab
+    activeTab === "all" ? true : resolveTabGroup(q.category) === activeTab
   );
 
   const isLoading = loadingState !== "ready" && loadingState !== "error";
@@ -322,7 +333,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
             {displayedQuestions.map((q) => {
               const isSelected = selectedIds.includes(q.id);
               const outputStyle = getOutputTypeConfig(q.expected_output_type);
-              const isPre = q.category === "pre-processing";
+              const isPre = resolveTabGroup(q.category) === "pre-processing";
 
               return (
                 <div

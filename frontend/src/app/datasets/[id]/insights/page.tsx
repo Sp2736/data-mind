@@ -125,8 +125,49 @@ function LineChart({ labels = [], values = [], title }: { labels?: string[]; val
   );
 }
 
+// Categories that the LLM assigns at question-generation time.
+// The DB stores whatever string the LLM chose, so we group them here.
+const EDA_CATEGORIES = new Set(["eda", "correlation", "trend", "anomaly", "segmentation", "distribution", "comparison", "statistical", "summary"]);
+const CLEANING_CATEGORIES = new Set(["pre-processing", "preprocessing", "cleaning", "data_cleaning", "data-cleaning", "pre_processing"]);
+
+function resolveTabGroup(category: string): "pre-processing" | "eda" | "other" {
+  const c = (category ?? "").toLowerCase().trim();
+  if (CLEANING_CATEGORIES.has(c)) return "pre-processing";
+  if (EDA_CATEGORIES.has(c)) return "eda";
+  // Partial match fallback
+  if (c.includes("clean") || c.includes("preprocess") || c.includes("pre-process")) return "pre-processing";
+  return "eda"; // Default unknown categories to EDA so they're not lost
+}
+
 function renderChart(visual: ApiVisualization) {
   const cfg = visual.chart_config as Record<string, unknown>;
+
+  // "interactive" is the chart_type stored by visualization_builder node.
+  // chart_config is a VisualizationSpec: { charts: InteractiveChart[], rationale: string }
+  if (visual.chart_type === "interactive") {
+    const charts = cfg.charts as Array<{
+      chart_type: string; title: string; description?: string;
+      x_axis_key: string; y_axis_keys: string[];
+      data: Array<Record<string, unknown>>;
+    }> | undefined;
+    if (!charts || charts.length === 0) {
+      return <p className="text-xs text-stone-400 text-center">No chart data available.</p>;
+    }
+    return (
+      <div className="w-full flex flex-col gap-4">
+        {charts.slice(0, 2).map((chart, i) => {
+          const labels = chart.data.map(d => String(d[chart.x_axis_key] ?? ""));
+          const yKey = chart.y_axis_keys?.[0] ?? "value";
+          const values = chart.data.map(d => Number(d[yKey] ?? 0));
+          const t = chart.chart_type?.toLowerCase();
+          if (t === "pie") return <DonutChart key={i} labels={labels} values={values} title={chart.title} />;
+          if (t === "line" || t === "area") return <LineChart key={i} labels={labels} values={values} title={chart.title} />;
+          return <BarChart key={i} labels={labels} values={values} title={chart.title} />;
+        })}
+      </div>
+    );
+  }
+
   const labels = cfg.labels as string[] | undefined;
   const values = cfg.values as number[] | undefined;
   const title = (cfg.title as string) || "Chart";
@@ -338,8 +379,16 @@ export default function InsightsPage({ params }: { params: Promise<{ id: string 
 
   const displayed = items.filter(({ insight, question }) => {
     if (activeCategoryFilter === "all") return true;
-    return (question?.category ?? insight.category) === activeCategoryFilter;
+    const rawCategory = question?.category ?? insight.category ?? "";
+    return resolveTabGroup(rawCategory) === activeCategoryFilter;
   });
+
+  const cleaningCount = items.filter(({ insight, question }) =>
+    resolveTabGroup(question?.category ?? insight.category ?? "") === "pre-processing"
+  ).length;
+  const edaCount = items.filter(({ insight, question }) =>
+    resolveTabGroup(question?.category ?? insight.category ?? "") === "eda"
+  ).length;
 
   if (isLoading) return (
     <AuthGuard>
@@ -431,7 +480,11 @@ export default function InsightsPage({ params }: { params: Promise<{ id: string 
                     : "text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200"
                 }`}
               >
-                {tab === "all" ? `All Insights (${items.length})` : tab === "pre-processing" ? "Cleaning & Pre-processing" : "Statistical Findings (EDA)"}
+                {tab === "all"
+                  ? `All Insights (${items.length})`
+                  : tab === "pre-processing"
+                  ? `Cleaning & Pre-processing (${cleaningCount})`
+                  : `Statistical Findings (EDA) (${edaCount})`}
               </button>
             ))}
           </div>
@@ -455,7 +508,8 @@ export default function InsightsPage({ params }: { params: Promise<{ id: string 
           {/* Insight cards */}
           <div className="flex flex-col gap-6">
             {displayed.map(({ insight, question, visual }, idx) => {
-              const isPre = (question?.category ?? insight.category) === "pre-processing";
+                const rawCategory = question?.category ?? insight.category ?? "";
+                const isPre = resolveTabGroup(rawCategory) === "pre-processing";
               return (
                 <div
                   key={insight.id}
