@@ -434,13 +434,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                     title={`Open source: ${externalDownloadUrl}`}
                     className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors shadow-sm cursor-pointer"
                   >
-                    {sourceUrl && (sourceUrl.startsWith("http") && sourceUrl.includes("kaggle")) ? (
-                      <Download className="w-3.5 h-3.5" />
-                    ) : sourceUrl && sourceUrl.startsWith("http") ? (
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5" />
-                    )}
+                    <ExternalLink className="w-3.5 h-3.5" />
                     <span>
                       {sourceUrl && sourceUrl.startsWith("http") && sourceUrl.includes("kaggle")
                         ? "View on Kaggle"

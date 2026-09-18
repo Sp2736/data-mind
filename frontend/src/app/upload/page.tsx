@@ -216,7 +216,20 @@ export default function UploadPage() {
                 </p>
                 <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
                   {stage === "polling"
-                    ? `Kaggle datasets can take 30–90 seconds. Checking status… (${pollCount})`
+                    ? (() => {
+                        const trimmed = url.trim();
+                        const isGithub =
+                          trimmed.includes("raw.githubusercontent.com") ||
+                          (trimmed.includes("github.com") && !trimmed.includes("kaggle"));
+                        const isKaggle =
+                          trimmed.includes("kaggle.com") ||
+                          /^[\w.-]+\/[\w.-]+$/.test(trimmed);
+                        if (isGithub)
+                          return `GitHub file detected — usually downloads in a few seconds. Checking status… (${pollCount})`;
+                        if (isKaggle)
+                          return `Kaggle datasets can take 30–90 seconds. Checking status… (${pollCount})`;
+                        return `Downloading & profiling dataset. Checking status… (${pollCount})`;
+                      })()
                     : "Registering dataset with DataMind backend…"}
                 </p>
               </div>
