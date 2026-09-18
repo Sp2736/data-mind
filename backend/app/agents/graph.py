@@ -12,6 +12,7 @@ This graph runs once per ResearchQuestion, i.e. once per AnalysisRun:
                         not yet, retry -> code_corrector -> sandbox_execute (loop)
                         attempts exhausted -> give_up -> END
 """
+import logging
 from typing import Literal
 from langgraph.graph import StateGraph, START, END
 
@@ -83,8 +84,27 @@ def build_analysis_graph():
 analysis_graph = build_analysis_graph()
 
 
-async def run_analysis(initial_state: AnalysisState) -> AnalysisState:
-    """Entry point called from the API/background task layer."""
+async def run_analysis(
+    initial_state: AnalysisState,
+    experiment_arm: str = "baseline",
+    trial_index: int = 0,
+) -> AnalysisState:
+    """Entry point called from the API/background task layer.
+
+    `experiment_arm`/`trial_index` are optional and only used for the
+    research-paper telemetry record (Part C) — existing callers that don't
+    pass them keep working exactly as before, recorded as a single
+    "baseline" trial 0.
+    """
     final_state = await analysis_graph.ainvoke(initial_state)
+
+    # Best-effort telemetry: never allowed to affect the pipeline result.
+    try:
+        from app.services.telemetry import record_trial
+
+        record_trial(final_state, experiment_arm=experiment_arm, trial_index=trial_index)
+    except Exception:
+        logging.getLogger(__name__).exception("run_analysis: telemetry recording failed")
+
     return final_state
 
