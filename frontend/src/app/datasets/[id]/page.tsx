@@ -9,6 +9,7 @@ import { BentoGrid, BentoCard } from "@/components/layout/BentoGrid";
 import { Badge } from "@/components/ui/Badge";
 import { getDatasetById, Dataset } from "@/lib/mock/datasets";
 import { getDatasetProfile, DatasetProfile } from "@/lib/mock/datasetProfiles";
+import { ExternalLink } from "lucide-react";
 import { getDataset as apiGetDataset, getDatasetProfile as apiGetDatasetProfile, getSystemProfileDashboard, ApiSystemProfileDashboard, deleteDataset } from "@/lib/api/datasets";
 import { SystemDashboardVisuals } from "@/components/charts/SystemDashboardVisuals";
 import { 
@@ -62,6 +63,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [systemDashboard, setSystemDashboard] = useState<ApiSystemProfileDashboard | null>(null);
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
@@ -90,6 +92,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
             primary_domain: apiDs.primary_domain || (apiDs.format === "json" ? "Structured JSON" : "Tabular Data"),
           };
           setDataset(mappedDs);
+          setSourceUrl(apiDs.source_url ?? null);
 
           try {
             const apiProf = await apiGetDatasetProfile(datasetId);
@@ -289,6 +292,52 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
     });
   };
 
+  /**
+   * Resolves the correct download/external URL for the dataset based on its
+   * ingestion source:
+   *  - Kaggle shorthand ref (owner/slug)  → https://www.kaggle.com/datasets/owner/slug
+   *  - Kaggle competition ref (slug only) → https://www.kaggle.com/competitions/slug
+   *  - GitHub / direct HTTP URL          → the URL as stored
+   *  - Local upload (source_url is null) → null (fall back to sample-row blob)
+   */
+  const resolveExternalDownloadUrl = (src: string | null): string | null => {
+    if (!src) return null;
+    // Already a full URL (GitHub raw, direct link, full Kaggle page URL)
+    if (src.startsWith("http://") || src.startsWith("https://")) return src;
+    // Kaggle dataset shorthand: "owner/slug"
+    if (/^[\w.-]+\/[\w.-]+$/.test(src.trim())) {
+      return `https://www.kaggle.com/datasets/${src.trim()}`;
+    }
+    // Kaggle competition shorthand: bare slug with no slash
+    if (/^[\w.-]+$/.test(src.trim())) {
+      return `https://www.kaggle.com/competitions/${src.trim()}`;
+    }
+    return null;
+  };
+
+  const externalDownloadUrl = resolveExternalDownloadUrl(sourceUrl);
+
+  /** Fallback: download the profiled sample rows as a local blob. */
+  const handleSampleBlobDownload = () => {
+    let dataStr = "";
+    let filename = `sample_${dataset!.filename}`;
+    if (dataset!.format === "csv") {
+      const csvContent = convertToCSV(profile!.sample_rows);
+      dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
+      if (!filename.toLowerCase().endsWith(".csv")) filename += ".csv";
+    } else {
+      const jsonContent = JSON.stringify(profile!.sample_rows, null, 2);
+      dataStr = "data:application/json;charset=utf-8," + encodeURIComponent(jsonContent);
+      if (!filename.toLowerCase().endsWith(".json")) filename += ".json";
+    }
+    const anchor = document.createElement("a");
+    anchor.setAttribute("href", dataStr);
+    anchor.setAttribute("download", filename);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
   return (
     <AuthGuard>
       <div className="min-h-screen flex flex-col bg-(--background) text-(--foreground)">
@@ -373,37 +422,43 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                   {isDeleting ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                   <span>Delete</span>
                 </button>
-                <button 
-                  onClick={function() {
-                    let dataStr = "";
-                    let filename = `sample_${dataset.filename}`;
-                    
-                    if (dataset.format === "csv") {
-                      const csvContent = convertToCSV(profile.sample_rows);
-                      dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-                      if (!filename.toLowerCase().endsWith(".csv")) {
-                        filename += ".csv";
-                      }
-                    } else {
-                      const jsonContent = JSON.stringify(profile.sample_rows, null, 2);
-                      dataStr = "data:application/json;charset=utf-8," + encodeURIComponent(jsonContent);
-                      if (!filename.toLowerCase().endsWith(".json")) {
-                        filename += ".json";
-                      }
-                    }
-                    
-                    const downloadAnchor = document.createElement('a');
-                    downloadAnchor.setAttribute("href", dataStr);
-                    downloadAnchor.setAttribute("download", filename);
-                    document.body.appendChild(downloadAnchor);
-                    downloadAnchor.click();
-                    downloadAnchor.remove();
-                  }}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors shadow-sm cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Sample</span>
-                </button>
+
+                {/* Download button — resolves to the original source URL when
+                    available; falls back to a local sample-row blob for
+                    locally-uploaded datasets (no source_url). */}
+                {externalDownloadUrl ? (
+                  <a
+                    href={externalDownloadUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open source: ${externalDownloadUrl}`}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors shadow-sm cursor-pointer"
+                  >
+                    {sourceUrl && (sourceUrl.startsWith("http") && sourceUrl.includes("kaggle")) ? (
+                      <Download className="w-3.5 h-3.5" />
+                    ) : sourceUrl && sourceUrl.startsWith("http") ? (
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {sourceUrl && sourceUrl.startsWith("http") && sourceUrl.includes("kaggle")
+                        ? "View on Kaggle"
+                        : sourceUrl && !sourceUrl.startsWith("http")
+                        ? "View on Kaggle"
+                        : "View Source"}
+                    </span>
+                  </a>
+                ) : (
+                  <button
+                    onClick={handleSampleBlobDownload}
+                    title="Download a sample of the profiled rows as a local file"
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors shadow-sm cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Sample</span>
+                  </button>
+                )}
                 <Link
                   href={`/datasets/${datasetId}/rqs`}
                   className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold dark:shadow-none transition-all group cursor-pointer"
