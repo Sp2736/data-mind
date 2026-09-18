@@ -26,12 +26,9 @@ import {
   ArrowLeft,
   ChevronRight,
   Printer,
-  Download,
   Sparkles,
   FileText,
   RotateCw,
-  Eye,
-  Code,
   Loader2,
   AlertCircle,
   BarChart3,
@@ -58,7 +55,6 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
   const [report, setReport] = useState<ApiReport | null>(null);
   const [bundles, setBundles] = useState<InsightBundle[]>([]);
   const [markdownContent, setMarkdownContent] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"rendered" | "source">("rendered");
   const [isLoading, setIsLoading] = useState(true);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -246,19 +242,6 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
     window.print();
   };
 
-  // Download raw Markdown file
-  const handleDownloadMarkdown = () => {
-    const blob = new Blob([markdownContent], { type: "text/markdown;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `datamind_report_${dataset?.filename.replace(/\.[^/.]+$/, "") || datasetId}.md`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   if (isLoading) {
     return (
       <AuthGuard>
@@ -357,37 +340,11 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
                 Executive Audit &amp; Analytics Report
               </h1>
               <p className="text-xs sm:text-sm text-stone-500 dark:text-stone-400 mt-0.5">
-                Formatted Markdown document ready for executive review or PDF export.
+                Formatted document ready for executive review or PDF export.
               </p>
             </div>
 
             <div className="flex items-center gap-2.5 flex-wrap">
-              {/* View Switcher */}
-              <div className="inline-flex rounded-xl p-1 bg-stone-100 dark:bg-stone-800 border border-stone-200/60 dark:border-stone-700 text-xs font-semibold">
-                <button
-                  onClick={() => setActiveTab("rendered")}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    activeTab === "rendered"
-                      ? "bg-white dark:bg-stone-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
-                      : "text-stone-500 hover:text-stone-800 dark:text-stone-400"
-                  }`}
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Rendered</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("source")}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    activeTab === "source"
-                      ? "bg-white dark:bg-stone-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
-                      : "text-stone-500 hover:text-stone-800 dark:text-stone-400"
-                  }`}
-                >
-                  <Code className="w-3.5 h-3.5" />
-                  <span>Markdown</span>
-                </button>
-              </div>
-
               {/* Regenerate */}
               <button
                 onClick={() => loadAllData(true)}
@@ -396,16 +353,7 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
                 title="Regenerate Executive Summary"
               >
                 <RotateCw className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
-                <span className="hidden sm:inline">Regenerate</span>
-              </button>
-
-              {/* Download MD */}
-              <button
-                onClick={handleDownloadMarkdown}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-stone-200 dark:border-stone-800 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Download .MD</span>
+                <span>Regenerate</span>
               </button>
 
               {/* Download as PDF Button */}
@@ -424,24 +372,11 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
             ref={reportContainerRef}
             className="bg-white dark:bg-[#191921] border border-stone-200/80 dark:border-stone-800 rounded-3xl p-6 sm:p-10 shadow-sm print:border-none print:shadow-none print:p-6 print:m-0"
           >
-            {activeTab === "source" ? (
-              <div>
-                <div className="flex items-center justify-between pb-3 mb-4 border-b border-stone-200 dark:border-stone-800">
-                  <span className="text-xs font-mono font-bold text-stone-400 uppercase">Markdown Source Content</span>
-                  <span className="text-[10px] text-stone-400 font-mono">{markdownContent.length} characters</span>
-                </div>
-                <textarea
-                  readOnly
-                  value={markdownContent}
-                  className="w-full h-[650px] font-mono text-xs p-4 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl focus:outline-hidden resize-y text-stone-800 dark:text-stone-200"
-                />
-              </div>
-            ) : (
-              <div className="space-y-8">
-                
-                {/* Print Branded Header */}
-                <div className="border-b border-stone-200 dark:border-stone-800 pb-6">
-                  <div className="flex items-center justify-between gap-4">
+            <div className="space-y-8">
+              
+              {/* Print Branded Header */}
+              <div className="border-b border-stone-200 dark:border-stone-800 pb-6">
+                <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white font-black flex items-center justify-center text-sm shadow-sm">
                         DM
@@ -577,8 +512,7 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
                 )}
 
               </div>
-            )}
-          </div>
+            </div>
 
         </main>
       </div>
