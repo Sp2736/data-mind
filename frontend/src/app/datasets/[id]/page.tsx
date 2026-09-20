@@ -36,6 +36,17 @@ import {
   Clock
 } from "lucide-react";
 
+function normalizeDataType(type: any): string {
+  if (typeof type !== "string" || !type) return "TEXT";
+  const upperType = type.toUpperCase();
+  if (upperType.includes("INT")) return "INTEGER";
+  if (upperType.includes("FLOAT") || upperType.includes("DOUBLE") || upperType.includes("DECIMAL") || upperType.includes("NUMERIC")) return "DECIMAL";
+  if (upperType.includes("BOOL")) return "BOOLEAN";
+  if (upperType.includes("DATE") || upperType.includes("TIME") || upperType.includes("TIMESTAMP")) return "DATETIME";
+  if (upperType === "OBJECT" || upperType === "STRING" || upperType === "TEXT" || upperType === "VARCHAR" || upperType === "CATEGORY") return "TEXT";
+  return upperType;
+}
+
 const convertToCSV = (objArray: Record<string, any>[]) => {
   if (objArray.length === 0) return "";
   const headers = Object.keys(objArray[0]);
@@ -102,7 +113,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 dataset_id: apiProf.dataset_id,
                 schema_summary: apiProf.schema_summary.map((c: any) => ({
                   column_name: c.column_name || c.column || "Unknown",
-                  data_type: c.data_type || c.dtype || "UNKNOWN",
+                  data_type: normalizeDataType(c.data_type || c.dtype || c.type || c.column_type || "TEXT"),
                   is_primary_key: c.is_primary_key || false,
                   null_count: c.null_count || 0,
                   null_percentage: c.null_percentage !== undefined ? c.null_percentage : (c.null_pct || 0),
@@ -494,6 +505,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-stone-100 dark:border-stone-800 text-[10px] uppercase text-stone-400 font-semibold bg-stone-50 dark:bg-stone-900 sticky top-0 z-10">
+                      <th className="py-2.5 px-3 w-10 text-center border-r border-stone-100 dark:border-stone-800">#</th>
                       <th className="py-2.5 px-3.5">Column Name</th>
                       <th className="py-2.5 px-3">Type</th>
                       <th className="py-2.5 px-3 text-right">Unique</th>
@@ -511,8 +523,9 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                       filteredSchema.map((col, idx) => (
                         <tr 
                           key={col.column_name || idx} 
-                          className={`border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/40 dark:hover:bg-stone-800/40 transition-colors`}
+                          className={`border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/40 dark:hover:bg-stone-800/40 transition-colors ${idx % 2 === 0 ? "bg-white dark:bg-[#191921]" : "bg-stone-50/30 dark:bg-stone-900/10"}`}
                         >
+                          <td className="py-2.5 px-3 text-center text-stone-400 font-mono text-[10px] border-r border-stone-100/60 dark:border-stone-800/40">{idx + 1}</td>
                           <td className="py-2.5 px-3.5 truncate max-w-[130px] sm:max-w-[180px]">
                             <div className="flex items-center gap-1.5">
                               {col.is_primary_key && (
@@ -532,10 +545,14 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                           </td>
                           <td className="py-2.5 px-3 text-right">
                             {col.null_percentage > 0 ? (
-                              <span className="text-rose-600 dark:text-rose-400 font-semibold inline-flex items-center gap-1 text-[11px]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />
-                                {col.null_percentage}%
-                              </span>
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-16 h-1.5 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden shrink-0">
+                                  <div className="h-full bg-rose-400 dark:bg-rose-500 rounded-full" style={{ width: `${Math.min(100, col.null_percentage)}%` }} />
+                                </div>
+                                <span className="text-rose-600 dark:text-rose-400 font-semibold inline-flex items-center text-[11px] w-8 text-right">
+                                  {Number(col.null_percentage).toFixed(1)}%
+                                </span>
+                              </div>
                             ) : (
                               <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">0%</span>
                             )}
@@ -740,6 +757,7 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                 <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-stone-100 dark:border-stone-800 text-[10px] uppercase text-stone-400 font-semibold bg-stone-50 dark:bg-stone-900">
+                      <th className="py-2.5 px-3 w-10 text-center sticky left-0 bg-stone-50 dark:bg-stone-900 z-10 border-r border-stone-100 dark:border-stone-800 shadow-[2px_0_4px_rgba(0,0,0,0.02)]">#</th>
                       {profile.schema_summary.map((col, idx) => (
                         <th key={col.column_name || idx} className="py-2.5 px-4">
                           <div className="flex items-center gap-1">
@@ -754,8 +772,11 @@ export default function DatasetProfilePage({ params }: { params: Promise<{ id: s
                     {profile.sample_rows.map((row, rIdx) => (
                       <tr 
                         key={rIdx} 
-                        className="border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/30 dark:hover:bg-stone-800/20 last:border-b-0 transition-colors"
+                        className={`border-b border-stone-100/60 dark:border-stone-800/40 hover:bg-stone-100/40 dark:hover:bg-stone-800/40 transition-colors ${rIdx % 2 === 0 ? "bg-white dark:bg-[#191921]" : "bg-stone-50/30 dark:bg-stone-900/10"}`}
                       >
+                        <td className="py-2.5 px-3 text-center text-stone-400 font-mono text-[10px] sticky left-0 border-r border-stone-100 dark:border-stone-800 shadow-[2px_0_4px_rgba(0,0,0,0.02)] bg-inherit">
+                          {rIdx + 1}
+                        </td>
                         {profile.schema_summary.map((col, idx) => {
                           const val = row[col.column_name];
                           let valStr = "";

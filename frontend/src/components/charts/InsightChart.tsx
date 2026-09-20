@@ -90,7 +90,7 @@ export function CleanBarChart({
   const padLeft = 36;
   const padRight = 16;
   const padTop = 22;
-  const padBottom = 32;
+  const padBottom = 64;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -199,14 +199,15 @@ export function CleanBarChart({
                 </text>
               )}
 
-              {/* X Axis label (truncated if long) */}
+              {/* X Axis label (rotated, no truncation) */}
               <text
                 x={barX + barW / 2}
-                y={height - padBottom + 13}
-                textAnchor="middle"
+                y={height - padBottom + 18}
+                textAnchor="end"
+                transform={`rotate(-45, ${barX + barW / 2}, ${height - padBottom + 18})`}
                 className="text-[8px] font-semibold fill-stone-500 dark:fill-stone-400"
               >
-                {labelText.length > 8 ? labelText.slice(0, 7) + "…" : labelText}
+                {labelText}
               </text>
             </g>
           );
@@ -253,7 +254,7 @@ export function CleanLineChart({
   const padLeft = 36;
   const padRight = 16;
   const padTop = 22;
-  const padBottom = 28;
+  const padBottom = 64;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -396,11 +397,12 @@ export function CleanLineChart({
             <text
               key={idx}
               x={pt.x}
-              y={height - padBottom + 12}
-              textAnchor="middle"
+              y={height - padBottom + 18}
+              textAnchor="end"
+              transform={`rotate(-45, ${pt.x}, ${height - padBottom + 18})`}
               className="text-[8px] font-semibold fill-stone-500 dark:fill-stone-400"
             >
-              {pt.label.length > 7 ? pt.label.slice(0, 6) : pt.label}
+              {pt.label}
             </text>
           );
         })}
@@ -514,7 +516,7 @@ export function CleanDonutChart({
                 onMouseLeave={() => setHoveredIdx(null)}
               >
                 <span className={`w-2 h-2 rounded-full ${bgColors[i % bgColors.length]} shrink-0`} />
-                <span className="text-stone-600 dark:text-stone-300 truncate font-semibold">
+                <span className="text-stone-600 dark:text-stone-300 break-words whitespace-normal font-semibold">
                   {l || `Group ${i + 1}`}
                 </span>
                 <span className="text-stone-400 font-bold ml-auto font-mono">{pct}%</span>
@@ -606,33 +608,51 @@ export function InsightVisualRenderer({
     case "table": {
       const headers = cfg.table_headers as string[] | undefined;
       const rows = cfg.table_rows as Record<string, unknown>[] | undefined;
+      
+      const isNumber = (val: any) => val !== null && val !== "" && !isNaN(Number(val));
+      
       return (
-        <div className="w-full overflow-hidden">
+        <div className="w-full overflow-hidden flex flex-col items-center">
           <h5 className="text-[11px] font-bold text-stone-600 dark:text-stone-300 mb-2 text-center">
             {title}
           </h5>
-          <div className="overflow-x-auto rounded-xl border border-stone-200 dark:border-stone-800">
+          <div className="overflow-x-auto rounded-xl border border-stone-200 dark:border-stone-800 w-full bg-white dark:bg-[#191921] shadow-sm">
             <table className="w-full text-left border-collapse text-[10px]">
               <thead>
-                <tr className="border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 font-bold text-stone-500">
+                <tr className="border-b-2 border-indigo-100 dark:border-indigo-900/50 bg-stone-50/80 dark:bg-stone-900/80 font-bold text-stone-500 uppercase tracking-wider">
                   {headers?.map((h, i) => (
-                    <th key={i} className="py-1.5 px-2 whitespace-nowrap">
+                    <th key={i} className="py-2 px-3 whitespace-nowrap border-r border-stone-100 dark:border-stone-800/50 last:border-r-0">
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rows?.slice(0, 6).map((row, i) => (
+                {rows?.slice(0, 8).map((row, i) => (
                   <tr
                     key={i}
-                    className="border-b border-stone-100 dark:border-stone-850 hover:bg-stone-50/60 dark:hover:bg-stone-800/40 last:border-b-0"
+                    className={`border-b border-stone-100 dark:border-stone-800/60 hover:bg-stone-50/80 dark:hover:bg-stone-800/60 transition-colors last:border-b-0 ${
+                      i % 2 === 0 ? "bg-white dark:bg-[#191921]" : "bg-stone-50/30 dark:bg-stone-900/20"
+                    }`}
                   >
-                    {headers?.map((h, j) => (
-                      <td key={j} className="py-1.5 px-2 text-stone-600 dark:text-stone-300 font-semibold">
-                        {String(row[h] ?? "")}
-                      </td>
-                    ))}
+                    {headers?.map((h, j) => {
+                      const val = row[h];
+                      const num = isNumber(val);
+                      return (
+                        <td 
+                          key={j} 
+                          className={`py-2 px-3 text-stone-700 dark:text-stone-300 border-r border-stone-100 dark:border-stone-800/50 last:border-r-0 ${num ? 'text-right font-mono text-[10px] text-indigo-600 dark:text-indigo-400 font-medium' : 'font-medium text-[11px]'}`}
+                        >
+                          {val === null || val === undefined ? (
+                            <span className="text-stone-400 italic font-normal">null</span>
+                          ) : num ? (
+                            Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                          ) : (
+                            String(val)
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
