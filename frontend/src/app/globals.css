@@ -375,3 +375,26 @@ a, button, input, select, textarea, [role="button"] {
   animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
+@media print {
+  :root, body, .dark body, .dark {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Hide UI elements during print */
+  .print-hidden, header, nav, .sidebar {
+    display: none !important;
+  }
+  
+  /* Prevent page breaks inside cards */
+  .card, .insight-box, .chart-container {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+

@@ -242,6 +242,38 @@ export async function getVisualization(
     return await fetchApi<ApiVisualization>(
       `/datasets/${datasetId}/insights/${insightId}/visualization`
     );
+} catch {
+    return null;
+  }
+}
+
+/** Get visualization image as base64 data URI */
+export async function getVisualizationImageBase64(
+  datasetId: string,
+  insightId: string
+): Promise<string | null> {
+  try {
+    const STORAGE_KEY_TOKEN = "datamind_auth_token";
+    const token = typeof window !== "undefined"
+      ? localStorage.getItem(STORAGE_KEY_TOKEN) || sessionStorage.getItem(STORAGE_KEY_TOKEN)
+      : null;
+      
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const response = await fetch(`${API_BASE_URL}/datasets/${datasetId}/insights/${insightId}/visualization/image`, {
+      headers
+    });
+    
+    if (!response.ok) return null;
+    
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
   } catch {
     return null;
   }

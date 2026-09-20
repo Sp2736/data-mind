@@ -4,6 +4,8 @@ import React, { use, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { generateProfessionalPDF } from "@/lib/pdfExport";
+import { ProfessionalPDFTemplate } from "@/components/report/ProfessionalPDFTemplate";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { Badge } from "@/components/ui/Badge";
@@ -13,6 +15,7 @@ import {
   listQuestions,
   getDatasetProfile,
   getVisualization,
+  getVisualizationImageBase64,
   getReport,
   buildReport,
   ApiDataset,
@@ -44,6 +47,7 @@ interface InsightBundle {
   insight: ApiInsight;
   question?: ApiResearchQuestion;
   visual?: ApiVisualization | null;
+  base64Image?: string | null;
 }
 
 export default function ExecutiveReportPage({ params }: { params: Promise<{ id: string }> }) {
@@ -57,11 +61,15 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
   const [markdownContent, setMarkdownContent] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reportContainerRef = useRef<HTMLDivElement>(null);
+  const printTemplateRef = useRef<HTMLDivElement>(null);
 
   // Generate markdown document from live pipeline data
+  const displayFilename = dataset?.filename.split(/[/\\]/).pop() || "Dataset";
+
   const generateMarkdownReport = (
     ds: ApiDataset,
     prof: ApiDatasetProfile | null,
@@ -201,7 +209,11 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
       const enriched: InsightBundle[] = await Promise.all(
         insights.map(async (insight) => {
           const visual = await getVisualization(datasetId, insight.id);
-          return { insight, question: qMap[insight.rq_id], visual };
+          let base64Image = null;
+          if (visual?.chart_file_path) {
+            base64Image = await getVisualizationImageBase64(datasetId, insight.id);
+          }
+          return { insight, question: qMap[insight.rq_id], visual, base64Image };
         })
       );
       setBundles(enriched);
@@ -238,8 +250,17 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
   }, [datasetId]);
 
   // Trigger PDF print
-  const handlePrintPDF = () => {
-    window.print();
+  const handlePrintPDF = async () => {
+    if (!printTemplateRef.current) return;
+    setIsGeneratingPDF(true);
+    try {
+      await generateProfessionalPDF(printTemplateRef, `${displayFilename}_executive_report.pdf`);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+      setError("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsGeneratingPDF(false);
+    }
   };
 
   if (isLoading) {
@@ -291,6 +312,16 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
     <AuthGuard>
       <div className="min-h-screen flex flex-col bg-[#faf8f5] dark:bg-[#121216] text-stone-800 dark:text-stone-100 pb-20 print:bg-white print:text-black print:pb-0">
         
+        {dataset && (
+          <ProfessionalPDFTemplate 
+            ref={printTemplateRef} 
+            dataset={dataset} 
+            profile={profile} 
+            report={report} 
+            bundles={bundles} 
+          />
+        )}
+
         {/* Navigation & Header (Hidden on Print) */}
         <div className="print:hidden">
           <Header />
@@ -359,10 +390,11 @@ export default function ExecutiveReportPage({ params }: { params: Promise<{ id: 
               {/* Download as PDF Button */}
               <button
                 onClick={handlePrintPDF}
-                className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100 dark:shadow-none hover:shadow-lg cursor-pointer"
+                disabled={isGeneratingPDF}
+                className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
               >
-                <Printer className="w-4 h-4" />
-                <span>Download as PDF</span>
+                {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                <span>{isGeneratingPDF ? "Generating PDF..." : "Download as PDF"}</span>
               </button>
             </div>
           </div>
