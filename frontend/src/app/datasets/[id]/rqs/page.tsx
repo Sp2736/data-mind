@@ -43,6 +43,7 @@ function QualityBadge({ score, label }: { score: number; label: string | null })
 }
 
 // Maps whatever category string the LLM stored to one of the two UI groups.
+// These must stay in sync with the valid category values in question_generator_system_prompt.md
 const EDA_CATEGORIES = new Set(["eda", "correlation", "trend", "anomaly", "segmentation", "distribution", "comparison", "statistical", "summary"]);
 const CLEANING_CATEGORIES = new Set(["pre-processing", "preprocessing", "cleaning", "data_cleaning", "data-cleaning", "pre_processing"]);
 
@@ -50,7 +51,8 @@ function resolveTabGroup(category: string): "pre-processing" | "eda" {
   const c = (category ?? "").toLowerCase().trim();
   if (CLEANING_CATEGORIES.has(c)) return "pre-processing";
   if (c.includes("clean") || c.includes("preprocess") || c.includes("pre-process")) return "pre-processing";
-  return "eda"; // EDA is the default — no insight is silently lost
+  if (EDA_CATEGORIES.has(c)) return "eda";
+  return "eda"; // unknown categories default to EDA so no question is silently lost
 }
 
 function getOutputTypeConfig(type: string) {

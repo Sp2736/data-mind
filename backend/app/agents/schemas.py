@@ -7,7 +7,14 @@ from pydantic import BaseModel, Field
 
 
 class ResearchQuestionItem(BaseModel):
-    category: str = Field(description="e.g. 'trend', 'correlation', 'anomaly', 'segmentation'")
+    category: str = Field(
+        description=(
+            "Exactly one of: 'data_cleaning' | 'distribution' | 'correlation' | "
+            "'trend' | 'anomaly' | 'segmentation'. "
+            "Use 'data_cleaning' whenever the dataset has missing values or outliers "
+            "that should be addressed before analysis."
+        )
+    )
     question_text: str
     target_columns: list[str]
     rationale: str

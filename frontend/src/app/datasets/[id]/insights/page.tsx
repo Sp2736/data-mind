@@ -26,6 +26,7 @@ import { InsightVisualRenderer } from "@/components/charts/InsightChart";
 
 // Categories that the LLM assigns at question-generation time.
 // The DB stores whatever string the LLM chose, so we group them here.
+// These must stay in sync with the valid category values in question_generator_system_prompt.md
 const EDA_CATEGORIES = new Set(["eda", "correlation", "trend", "anomaly", "segmentation", "distribution", "comparison", "statistical", "summary"]);
 const CLEANING_CATEGORIES = new Set(["pre-processing", "preprocessing", "cleaning", "data_cleaning", "data-cleaning", "pre_processing"]);
 
