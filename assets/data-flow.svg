@@ -1,0 +1,72 @@
+<svg width="1100" height="300" viewBox="0 0 1100 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="dbg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0b1020"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .lane { fill: #111827; stroke: #334155; rx: 12; }
+      .t { font-size: 14px; fill: #e2e8f0; font-weight: 700; }
+      .s { font-size: 11px; fill: #94a3b8; }
+      .edge { stroke: #334155; stroke-width: 2; marker-end: url(#arr2); fill:none; }
+      .pkt { filter: drop-shadow(0 0 5px currentColor); }
+    </style>
+  </defs>
+  <rect width="1100" height="300" fill="url(#dbg)"/>
+  <text x="30" y="34" class="t" font-size="17">End-to-End Data Flow</text>
+
+  <!-- lanes -->
+  <rect x="20"  y="70" width="150" height="150" class="lane"/>
+  <text x="95" y="140" class="t" text-anchor="middle">Frontend</text>
+  <text x="95" y="158" class="s" text-anchor="middle">Next.js</text>
+
+  <rect x="220" y="70" width="150" height="150" class="lane"/>
+  <text x="295" y="130" class="t" text-anchor="middle">FastAPI</text>
+  <text x="295" y="148" class="s" text-anchor="middle">REST + WS</text>
+  <text x="295" y="164" class="s" text-anchor="middle">gateway</text>
+
+  <rect x="420" y="70" width="150" height="150" class="lane"/>
+  <text x="495" y="130" class="t" text-anchor="middle">Postgres</text>
+  <text x="495" y="148" class="s" text-anchor="middle">+ pgvector</text>
+  <text x="495" y="164" class="s" text-anchor="middle">durable state</text>
+
+  <rect x="620" y="70" width="150" height="150" class="lane"/>
+  <text x="695" y="130" class="t" text-anchor="middle">LangGraph</text>
+  <text x="695" y="148" class="s" text-anchor="middle">agent pipeline</text>
+
+  <rect x="820" y="70" width="130" height="150" class="lane"/>
+  <text x="885" y="130" class="t" text-anchor="middle">Sandbox</text>
+  <text x="885" y="148" class="s" text-anchor="middle">Docker,</text>
+  <text x="885" y="164" class="s" text-anchor="middle">no network</text>
+
+  <rect x="970" y="70" width="110" height="150" class="lane"/>
+  <text x="1025" y="130" class="t" text-anchor="middle">LLM</text>
+  <text x="1025" y="148" class="s" text-anchor="middle">OpenRouter</text>
+  <text x="1025" y="164" class="s" text-anchor="middle">/ Gemini</text>
+
+  <!-- connecting edges -->
+  <path class="edge" d="M170,145 H220"/>
+  <path class="edge" d="M370,120 H420"/>
+  <path class="edge" d="M370,170 H420" opacity="0.4"/>
+  <path class="edge" d="M370,145 H420 H620" opacity="0"/>
+  <path class="edge" d="M570,145 H620"/>
+  <path class="edge" d="M770,120 H820"/>
+  <path class="edge" d="M770,170 H970" opacity="0.9"/>
+  <path class="edge" d="M950,120 H970" opacity="0.9"/>
+
+  <!-- packets -->
+  <circle r="5" class="pkt" fill="#22d3ee" style="color:#22d3ee">
+    <animateMotion dur="5s" repeatCount="indefinite" path="M95,145 H295 H495 H695 H885"/>
+  </circle>
+  <circle r="5" class="pkt" fill="#f472b6" style="color:#f472b6">
+    <animateMotion dur="5s" begin="1.2s" repeatCount="indefinite" path="M695,145 H1025 H695"/>
+  </circle>
+  <circle r="5" class="pkt" fill="#34d399" style="color:#34d399">
+    <animateMotion dur="5s" begin="2.5s" repeatCount="indefinite" path="M885,145 H695 H495"/>
+  </circle>
+
+  <text x="30" y="260" class="s">upload → profile → generate questions (RAG-retrieved context) → per-question run → sandbox execution → insight → report</text>
+</svg>
