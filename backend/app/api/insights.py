@@ -38,3 +38,30 @@ async def get_visualization(
 ):
     result = await db.execute(select(Visualization).where(Visualization.insight_id == insight_id))
     return result.scalar_one_or_none()
+
+from fastapi.responses import FileResponse
+import os
+
+@router.get("/{dataset_id}/insights/{insight_id}/visualization/image")
+async def get_visualization_image(
+    dataset_id: str,
+    insight_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: LocalUser = Depends(get_current_user),
+):
+    result = await db.execute(select(Visualization).where(Visualization.insight_id == insight_id))
+    vis = result.scalar_one_or_none()
+    if not vis or not vis.chart_file_path:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # chart_file_path is an absolute path or relative to generated_code_dir
+    from app.config import settings
+    path = vis.chart_file_path
+    if not os.path.isabs(path):
+        path = os.path.join(settings.generated_code_dir, path)
+        
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+        
+    return FileResponse(path, media_type="image/png")

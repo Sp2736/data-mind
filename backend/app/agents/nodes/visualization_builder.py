@@ -49,12 +49,20 @@ async def visualization_builder(state: AnalysisState) -> AnalysisState:
     parsed: VisualizationSpec | None = result.get("parsed")
     usage = getattr(result.get("raw"), "usage_metadata", None) or {}
 
+    # Attempt to find a PNG file from the sandbox execution output_files
+    chart_file_path = None
+    output_files = execution.get("output_files") or []
+    for file_path in output_files:
+        if str(file_path).endswith(".png"):
+            chart_file_path = str(file_path)
+            break
+
     visualization = None
     if parsed is not None:
         visualization = {
             "chart_type": "interactive",
             "chart_config": parsed.model_dump(),
-            "chart_file_path": None,
+            "chart_file_path": chart_file_path,
         }
     else:
         logger.warning("visualization_builder: structured parse failed")
