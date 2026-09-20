@@ -54,17 +54,33 @@ async def trigger_runs(
     if len(rqs) != len(body.rq_ids):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more research questions not found")
 
+    existing_runs_result = await db.execute(
+        select(AnalysisRun).where(
+            AnalysisRun.dataset_id == dataset_id,
+            AnalysisRun.rq_id.in_(body.rq_ids),
+            AnalysisRun.status.in_(["queued", "running", "completed", "succeeded"])
+        )
+    )
+    existing_runs = existing_runs_result.scalars().all()
+    existing_runs_by_rq = {r.rq_id: r for r in existing_runs}
+
     runs = []
+    rqs_to_run = []
+    
     for rq in rqs:
-        run = AnalysisRun(dataset_id=dataset_id, rq_id=rq.id, status="queued")
-        db.add(run)
-        runs.append(run)
+        if rq.id in existing_runs_by_rq:
+            runs.append(existing_runs_by_rq[rq.id])
+        else:
+            run = AnalysisRun(dataset_id=dataset_id, rq_id=rq.id, status="queued")
+            db.add(run)
+            runs.append(run)
+            rqs_to_run.append(run)
 
     await db.commit()
-    for run in runs:
+    for run in rqs_to_run:
         await db.refresh(run)
 
-    for run in runs:
+    for run in rqs_to_run:
         background_tasks.add_task(_execute_run, run.id)
 
     return runs
