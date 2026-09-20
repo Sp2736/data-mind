@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.agents.schemas import CodeCorrectionOutput
 from app.agents.state import AnalysisState, CodeAttempt
-from app.services.llm import get_llm, with_llm_retry
+from app.services.llm import get_llm, with_llm_retry, flush_retry_count
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,18 @@ async def code_corrector(state: AnalysisState) -> AnalysisState:
 
     logger.info("code_corrector attempt %s diagnosis: %s", attempt_number, diagnosis)
 
+    # ── Per-node usage accumulation (§4.3.4) ─────────────────────────────────
+    _NODE = "code_corrector"
+    node_calls = dict(state.get("node_llm_calls", {}))
+    node_calls[_NODE] = node_calls.get(_NODE, 0) + 1
+    node_pt = dict(state.get("node_prompt_tokens", {}))
+    node_pt[_NODE] = node_pt.get(_NODE, 0) + _get_usage(usage, "input_tokens")
+    node_ct = dict(state.get("node_completion_tokens", {}))
+    node_ct[_NODE] = node_ct.get(_NODE, 0) + _get_usage(usage, "output_tokens")
+    node_tt = dict(state.get("node_total_tokens", {}))
+    node_tt[_NODE] = node_tt.get(_NODE, 0) + _get_usage(usage, "total_tokens")
+    retry_delta = flush_retry_count()
+
     return {
         **state,
         "attempts": attempt_number,
@@ -139,5 +151,10 @@ async def code_corrector(state: AnalysisState) -> AnalysisState:
         "prompt_tokens": state.get("prompt_tokens", 0) + _get_usage(usage, "input_tokens"),
         "completion_tokens": state.get("completion_tokens", 0) + _get_usage(usage, "output_tokens"),
         "total_tokens": state.get("total_tokens", 0) + _get_usage(usage, "total_tokens"),
+        "node_llm_calls": node_calls,
+        "node_prompt_tokens": node_pt,
+        "node_completion_tokens": node_ct,
+        "node_total_tokens": node_tt,
+        "rate_limit_retry_count": state.get("rate_limit_retry_count", 0) + retry_delta,
     }
 

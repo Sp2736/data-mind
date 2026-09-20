@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     code_generator_model: str = "google:gemini-3.1-flash-lite"
     code_corrector_model: str = "google:gemini-3.1-flash-lite"
     insight_writer_model: str = "google:gemini-3.1-flash-lite"
+    # Held-out judge models — used only by offline batch-scoring scripts in
+    # backend/experiment/judge_trials.py and app/evaluation/*.  Never called
+    # during a live user-facing pipeline run.
+    rq_judge_model: str = "google:gemini-3.1-flash-lite"
+    code_judge_model: str = "google:gemini-3.1-flash-lite"
+    insight_judge_model: str = "google:gemini-3.1-flash-lite"
     llm_temperature: float = 0.2
 
     langchain_tracing_v2: bool = False

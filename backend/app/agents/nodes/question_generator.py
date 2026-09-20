@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 from app.agents.schemas import ResearchQuestionBatch
-from app.services.llm import get_llm, with_llm_retry
+from app.services.llm import get_llm, with_llm_retry, flush_retry_count
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,8 @@ async def generate_research_questions(
         "completion_tokens": usage.get("output_tokens", 0),
         "total_tokens": usage.get("total_tokens", 0),
         "llm_call_count": 1,
+        # §4.3.4: rate-limit retries incurred during question generation
+        "rate_limit_retries": flush_retry_count(),
     }
 
     if parsed is None:

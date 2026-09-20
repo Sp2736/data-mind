@@ -69,3 +69,15 @@ class AnalysisState(TypedDict, total=False):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+
+    # --- per-node LLM usage breakdown (§4.3.4) ---
+    # Keys: "question_generator" | "code_generator" | "code_corrector" | "insight_writer"
+    node_llm_calls: dict          # {node_name: call_count}
+    node_prompt_tokens: dict      # {node_name: prompt_token_count}
+    node_completion_tokens: dict  # {node_name: completion_token_count}
+    node_total_tokens: dict       # {node_name: total_token_count}
+
+    # --- rate-limit resilience (§4.3.4) ---
+    # Counts how many tenacity retries were triggered by 429 / rate-limit errors
+    # across all LLM calls in this run.
+    rate_limit_retry_count: int

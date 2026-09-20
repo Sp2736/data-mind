@@ -4,14 +4,51 @@ Each node's model setting is a "provider:model" string, e.g.
 "google:gemini-3-flash" or "openrouter:meta-llama/llama-3.3-70b-instruct:free".
 This lets different nodes hit different providers/quotas in the same run.
 """
+from contextvars import ContextVar
+
 from app.config import settings
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rate-limit retry counter (§4.3.4)
+#
+# A ContextVar so each asyncio Task (= each graph run) has its own counter.
+# Nodes call reset_retry_count() before their LLM call and read
+# flush_retry_count() (which resets to 0) after, accumulating the total into
+# AnalysisState.rate_limit_retry_count.
+# ─────────────────────────────────────────────────────────────────────────────
+_retry_counter: ContextVar[int] = ContextVar("_llm_retry_counter", default=0)
+
+
+def reset_retry_count() -> None:
+    """Reset the per-task retry counter to 0 (call at start of each node)."""
+    _retry_counter.set(0)
+
+
+def get_retry_count() -> int:
+    """Return the current retry count without resetting."""
+    return _retry_counter.get(0)
+
+
+def flush_retry_count() -> int:
+    """Return the current retry count and reset to 0."""
+    count = _retry_counter.get(0)
+    _retry_counter.set(0)
+    return count
+
+
+def _on_retry(retry_state) -> None:  # noqa: ANN001
+    """Tenacity before_sleep callback — increments the task-local counter."""
+    _retry_counter.set(_retry_counter.get(0) + 1)
+
 
 def with_llm_retry(fn):
     return retry(
         retry=retry_if_exception_type(Exception),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=2, max=60),
+        before_sleep=_on_retry,
         reraise=True,
     )(fn)
 

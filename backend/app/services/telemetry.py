@@ -94,6 +94,13 @@ def build_trial_record(
             "llm_call_count": state.get("llm_call_count", 0),
             "correction_attempts": max(state.get("attempts", 1) - 1, 0),
             "total_duration_ms": sum(e.get("duration_ms", 0) for e in state.get("execution_history", [])),
+            # §4.3.4 — per-node breakdown
+            "node_llm_calls": state.get("node_llm_calls", {}),
+            "node_prompt_tokens": state.get("node_prompt_tokens", {}),
+            "node_completion_tokens": state.get("node_completion_tokens", {}),
+            "node_total_tokens": state.get("node_total_tokens", {}),
+            # §4.3.4 — rate-limit resilience
+            "rate_limit_retry_count": state.get("rate_limit_retry_count", 0),
         },
         "judge_scores": {
             "relevance": None,
