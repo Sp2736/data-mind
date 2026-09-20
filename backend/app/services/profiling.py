@@ -58,10 +58,10 @@ def _schema_summary(df: pd.DataFrame) -> list[dict]:
         null_count = int(series.isna().sum())
         summary.append(
             {
-                "column": str(col),
-                "dtype": str(series.dtype),
+                "column_name": str(col),
+                "data_type": str(series.dtype),
                 "null_count": null_count,
-                "null_pct": round((null_count / n) * 100, 2) if n else 0.0,
+                "null_percentage": round((null_count / n) * 100, 2) if n else 0.0,
                 "unique_count": int(series.nunique(dropna=True)),
             }
         )
