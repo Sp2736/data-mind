@@ -79,7 +79,10 @@ async def generate_questions(
 
     # Delete any previously generated questions for this dataset (regeneration)
     existing = await db.execute(
-        select(ResearchQuestion).where(ResearchQuestion.dataset_id == dataset_id)
+        select(ResearchQuestion).where(
+            ResearchQuestion.dataset_id == dataset_id,
+            ResearchQuestion.category != "system_profile"
+        )
     )
     for old_rq in existing.scalars().all():
         await db.delete(old_rq)
