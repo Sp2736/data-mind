@@ -10,7 +10,8 @@ from app.rag.store import get_collection
 
 
 def _schema_text(schema_summary: list[dict]) -> str:
-    return ", ".join(f"{c['column']} ({c['dtype']})" for c in schema_summary)
+    # Keys written by profiling.py: column_name, data_type
+    return ", ".join(f"{c['column_name']} ({c['data_type']})" for c in schema_summary)
 
 
 def _index_insight_sync(
