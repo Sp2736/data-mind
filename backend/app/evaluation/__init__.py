@@ -1,8 +1,9 @@
 """Evaluation framework for the RAG-vs-baseline research paper.
 
 Sub-modules:
-  rq_quality.py    -> ResearchQuestion quality metrics (automatic + LLM-judge)
-  code_quality.py  -> Generated/executed code quality metrics (automatic + LLM-judge)
+  rq_quality.py      -> ResearchQuestion quality metrics (automatic + LLM-judge)
+  code_quality.py    -> Generated/executed code quality metrics (automatic + LLM-judge)
+  insight_quality.py -> Insight output quality metrics (automatic + LLM-judge, §4.3.3)
 
 Nothing in this package is imported by the live pipeline by default except
 the two calls wired into app/agents/graph.py (see PROJECT_CHANGES.md at the
