@@ -249,16 +249,24 @@ async def _main(args: argparse.Namespace) -> None:
         logger.warning("No trials found in %s — nothing to do.", input_path)
         return
 
-    # Load any previously scored records (idempotency)
-    already_judged = _load_already_judged(output_path)
+    # Load any previously scored records (idempotency); --force bypasses the cache.
+    already_judged = {} if args.force else _load_already_judged(output_path)
     logger.info(
-        "Loaded %d trials from input; %d already fully scored in output.",
+        "Loaded %d trials from input; %d already fully scored in output%s.",
         len(trials), len(already_judged),
+        " (ignored — --force active)" if args.force else "",
     )
 
     # Score
     scored_records: list[dict] = []
     to_score = [(i, t) for i, t in enumerate(trials) if t.get("run_id") not in already_judged]
+
+    # --limit: cap how many unscored trials we process this run.
+    if args.limit is not None and args.limit > 0:
+        logger.info("--limit %d: will score at most %d of %d unscored trial(s).",
+                    args.limit, min(args.limit, len(to_score)), len(to_score))
+        to_score = to_score[: args.limit]
+
     progress = _try_tqdm(to_score, total=len(to_score), desc="Judging trials")
 
     for i, trial in progress:
@@ -276,8 +284,14 @@ async def _main(args: argparse.Namespace) -> None:
             judged = trial
         scored_records.append(judged)
 
-    # Merge with already-judged and write
-    all_records: list[dict] = list(already_judged.values()) + scored_records
+    # Merge with already-judged and write.
+    # When --force is active, already_judged is empty so all records come from scored_records;
+    # unprocessed trials (beyond --limit) are re-emitted without judge_scores.
+    unprocessed = [
+        t for i, t in [(i, t) for i, t in enumerate(trials) if t.get("run_id") not in already_judged]
+        if (i, t) not in to_score  # trials skipped due to --limit
+    ]
+    all_records: list[dict] = list(already_judged.values()) + scored_records + unprocessed
     with open(output_path, "w", encoding="utf-8") as f:
         for rec in all_records:
             f.write(json.dumps(rec, default=str) + "\n")
@@ -319,6 +333,18 @@ def main() -> None:
         "--insight-judge-model",
         default=_s.insight_judge_model,
         help=f"Model spec for insight judge (default: {_s.insight_judge_model}).",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Stop after scoring N unscored trials (useful for smoke-testing; default: no limit).",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore the already-judged cache and re-score every trial from scratch.",
     )
     args = parser.parse_args()
 

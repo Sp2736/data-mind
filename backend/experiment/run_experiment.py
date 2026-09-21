@@ -36,6 +36,7 @@ import asyncio
 import logging
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 
 logging.basicConfig(
@@ -100,7 +101,7 @@ async def _run_trial(
 
     initial_state: AnalysisState = {
         "dataset_id": dataset.id,
-        "run_id": f"exp-{arm}-rep{rep}-{rq.id}",
+        "run_id": f"exp-{arm}-rep{rep}-{rq.id}-{uuid.uuid4().hex[:8]}",
         "rq_id": rq.id,
         "question_text": rq.question_text,
         "category": rq.category,
