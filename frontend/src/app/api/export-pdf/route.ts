@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       </html>
     `;
 
-    await page.setContent(fullHtml, { waitUntil: ["load", "networkidle0"] });
+    await page.setContent(fullHtml, { waitUntil: "load" });
 
     // Wait for Tailwind to inject its style tag
     await page.waitForFunction(() => document.querySelectorAll('style').length > 1, { timeout: 10000 }).catch(() => console.log('Tailwind style tag timeout'));
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     await browser.close();
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(Buffer.from(pdfBuffer), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": "attachment; filename=\"report.pdf\"",
