@@ -136,7 +136,7 @@ export const ProfessionalPDFTemplate = forwardRef<HTMLDivElement, ProfessionalPD
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex flex-col gap-1">
                         <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--accent)]">
-                          {bundle.question?.rq_category || "Insight"}
+                          {bundle.question?.category || "Insight"}
                         </span>
                         <p className="text-sm font-semibold leading-tight text-[var(--ink)] line-clamp-3">
                           {bundle.question?.question_text || `Insight ${idx + 1}`}
@@ -227,7 +227,7 @@ export const ProfessionalPDFTemplate = forwardRef<HTMLDivElement, ProfessionalPD
               
               <div className="mb-8">
                 <span className="inline-block px-2 py-1 mb-4 text-[10px] font-bold uppercase tracking-widest text-[var(--accent)] bg-[var(--accent-soft)] rounded-sm">
-                  {bundle.question?.rq_category || "Analytical Finding"}
+                  {bundle.question?.category || "Analytical Finding"}
                 </span>
                 <h2 className="font-serif text-2xl font-semibold text-[var(--ink)] leading-snug">
                   {bundle.question?.question_text ?? `Finding ${bundle.insight.id.slice(-6)}`}
