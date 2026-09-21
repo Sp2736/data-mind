@@ -17,6 +17,7 @@ import {
   Sliders,
   XCircle,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 
 const STORAGE_KEY_TOKEN = "datamind_auth_token";
@@ -273,6 +274,8 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
   const completedCount = runs.filter(r => isSuccess(r.status as RunStatus)).length;
   const failedCount = runs.filter(r => r.status === "failed").length;
   const progressPercent = runs.length > 0 ? Math.floor(((completedCount + failedCount) / runs.length) * 100) : 0;
+  // Unlock the Insights link as soon as at least one run has produced an insight.
+  const hasAnySucceeded = completedCount > 0;
 
   return (
     <AuthGuard>
@@ -300,8 +303,15 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
                 >
                   4. Analysis Insights ✓
                 </Link>
+              ) : hasAnySucceeded ? (
+                <Link
+                  href={`/datasets/${datasetId}/insights`}
+                  className="font-semibold text-indigo-500 dark:text-indigo-400 hover:underline"
+                >
+                  4. Analysis Insights ({completedCount} ready)
+                </Link>
               ) : (
-                <span className="cursor-not-allowed">4. Analysis Insights</span>
+                <span className="cursor-not-allowed text-stone-400">4. Analysis Insights</span>
               )}
             </div>
             <div className="w-10 sm:w-20 shrink-0" />
@@ -474,7 +484,29 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
             </div>
           </div>
 
-          {/* Completion CTA */}
+          {/* Early insights access -- shown as soon as 1+ run finishes, before full pipeline completion */}
+          {hasAnySucceeded && !isPipelineFinished && (
+            <div className="mt-2 p-4 sm:p-5 bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-indigo-500 text-white shadow-sm shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 font-medium">
+                  <span className="font-bold text-indigo-600 dark:text-indigo-400">{completedCount} insight{completedCount !== 1 ? "s" : ""} ready</span>
+                  {" — you can view them while the rest of the pipeline runs."}
+                </p>
+              </div>
+              <Link
+                href={`/datasets/${datasetId}/insights`}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all group shrink-0 w-full sm:w-auto cursor-pointer"
+              >
+                <span>View Insights</span>
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            </div>
+          )}
+
+          {/* Full completion CTA */}
           {isPipelineFinished && (
             <div className="mt-4 p-6 sm:p-8 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/25 dark:border-emerald-500/15 rounded-3xl animate-fade-in flex flex-col sm:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
@@ -488,7 +520,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
                   <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 mt-0.5 leading-relaxed">
                     {completedCount} run{completedCount !== 1 ? "s" : ""} succeeded
                     {failedCount > 0 ? `, ${failedCount} failed` : ""}.
-                    Insights and cleaned dataset are ready.
+                    Insights are ready.
                   </p>
                 </div>
               </div>
