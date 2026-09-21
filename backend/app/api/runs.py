@@ -159,6 +159,13 @@ async def _execute_run(run_id: str) -> None:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
+            # per-node breakdown (§4.3.4) — accumulated by nodes via telemetry helpers
+            "node_llm_calls": {},
+            "node_prompt_tokens": {},
+            "node_completion_tokens": {},
+            "node_total_tokens": {},
+            # rate-limit resilience (§4.3.4)
+            "rate_limit_retry_count": 0,
         }
 
         started = time.monotonic()
