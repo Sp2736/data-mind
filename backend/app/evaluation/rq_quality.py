@@ -88,7 +88,7 @@ def compute_automatic_metrics(
     dataset with no datetime column can't have "trend" held against it).
     Defaults to all EDA_CATEGORIES if not supplied by the caller.
     """
-    valid_columns = {c.get("column") for c in schema_summary}
+    valid_columns = {c.get("column_name") or c.get("column") for c in schema_summary}
     applicable_categories = applicable_categories or EDA_CATEGORIES
 
     total = len(questions)
