@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Header } from "@/components/layout/Header";
 import { Badge } from "@/components/ui/Badge";
-import { getDataset, listQuestions, generateQuestions, triggerRuns, ApiResearchQuestion } from "@/lib/api/datasets";
+import { getDataset, listQuestions, listRuns, generateQuestions, triggerRuns, ApiResearchQuestion } from "@/lib/api/datasets";
 import {
   ArrowLeft,
   ChevronRight,
@@ -24,20 +24,31 @@ import {
   StarHalf,
 } from "lucide-react";
 
+// Maps the 1-5 backend quality score to 0-3 display stars:
+// 5 (Excellent) = 3★, 4 (Good) = 2★, 3 (Adequate/Okay) = 1★, ≤2 (Weak/Poor) = 0★
+function scoreToStars(score: number): number {
+  if (score >= 5) return 3;
+  if (score === 4) return 2;
+  if (score === 3) return 1;
+  return 0;
+}
+
 function QualityBadge({ score, label }: { score: number; label: string | null }) {
+  const stars = scoreToStars(score);
   const colorMap: Record<number, string> = {
-    5: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40",
-    4: "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800/40",
-    3: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/40",
-    2: "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/40",
-    1: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/40",
+    3: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40",
+    2: "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800/40",
+    1: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/40",
+    0: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/40",
   };
-  const color = colorMap[Math.min(Math.max(score, 1), 5)] ?? colorMap[3];
-  const stars = "★".repeat(score) + "☆".repeat(5 - score);
+  const color = colorMap[stars] ?? colorMap[1];
+  const starStr = "★".repeat(stars) + "☆".repeat(3 - stars);
+  // Normalise label to title-case display value
+  const displayLabel = label ? label.charAt(0).toUpperCase() + label.slice(1).toLowerCase() : ["Bad", "Okay", "Good", "Excellent"][stars];
   return (
     <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border tracking-wide ${color}`}>
-      <span className="tracking-tight">{stars}</span>
-      <span className="uppercase">{label || `Q${score}`}</span>
+      <span className="tracking-tight">{starStr}</span>
+      <span className="uppercase">{displayLabel}</span>
     </span>
   );
 }
@@ -92,6 +103,9 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
   const [questions, setQuestions] = useState<ApiResearchQuestion[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"all" | "pre-processing" | "eda">("all");
+  // Track whether this dataset already has completed/running runs so we can unlock navigation.
+  const [hasExistingRuns, setHasExistingRuns] = useState(false);
+  const [hasCompletedRuns, setHasCompletedRuns] = useState(false);
 
   // Load dataset then questions
   const loadData = useCallback(async (regenerate = false) => {
@@ -130,6 +144,18 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     loadData(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
+
+  // Separately check for existing runs — this unlocks the navigation breadcrumb
+  // so users returning to this page can still navigate to Execution Logs / Insights.
+  useEffect(() => {
+    listRuns(datasetId).then(runs => {
+      if (runs.length > 0) {
+        setHasExistingRuns(true);
+        const anyDone = runs.some(r => r.status === "completed" || r.status === "succeeded" as string);
+        setHasCompletedRuns(anyDone);
+      }
+    }).catch(() => { /* silent — navigation locks are non-critical */ });
   }, [datasetId]);
 
   const toggleSelect = (id: string) => {
@@ -252,9 +278,27 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
               <span className="font-semibold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40">2. Research Questions</span>
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <span className="cursor-not-allowed">3. Execution Logs</span>
+              {hasExistingRuns ? (
+                <Link
+                  href={`/datasets/${datasetId}/status`}
+                  className="hover:text-stone-600 dark:hover:text-stone-300"
+                >
+                  3. Execution Logs
+                </Link>
+              ) : (
+                <span className="cursor-not-allowed text-stone-400">3. Execution Logs</span>
+              )}
               <ChevronRight className="w-3 h-3 text-stone-300 dark:text-stone-700" />
-              <span className="cursor-not-allowed">4. Analysis Insights</span>
+              {hasCompletedRuns ? (
+                <Link
+                  href={`/datasets/${datasetId}/insights`}
+                  className="hover:text-stone-600 dark:hover:text-stone-300"
+                >
+                  4. Analysis Insights
+                </Link>
+              ) : (
+                <span className="cursor-not-allowed text-stone-400">4. Analysis Insights</span>
+              )}
             </div>
             <div className="w-10 sm:w-20 shrink-0" />
           </div>
@@ -432,6 +476,15 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
               >
                 Back to Profile
               </Link>
+              {hasCompletedRuns && (
+                <Link
+                  href={`/datasets/${datasetId}/insights`}
+                  className="px-4 py-2.5 text-xs font-semibold border border-emerald-300 dark:border-emerald-800/60 rounded-xl text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 transition-colors flex items-center gap-1.5"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  View Previous Results
+                </Link>
+              )}
               <button
                 onClick={handleRunSelected}
                 disabled={selectedIds.length === 0 || loadingState === "triggering"}
