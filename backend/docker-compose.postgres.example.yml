@@ -1,4 +1,8 @@
-﻿services:
+# OPTIONAL — not used by default.
+# DataMind runs on SQLite (aiosqlite). No database server is needed.
+# This file is kept for reference only, in case a future migration to
+# PostgreSQL is desired. Do NOT run this as part of the normal setup.
+services:
   postgres:
     image: postgres:16
     container_name: datamind-postgres

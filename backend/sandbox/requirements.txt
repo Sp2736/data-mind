@@ -1,0 +1,13 @@
+# Sandbox Python dependencies.
+#
+# These MUST match (or be compatible with) the versions in backend/requirements.txt
+# so profiling and execution see the same dtype/behaviour.
+# Install for local subprocess development: pip install -r sandbox/requirements.txt
+#
+# Aligned with backend/requirements.txt pandas==3.0.5, numpy==2.5.1
+pandas==3.0.5
+numpy==2.5.1
+matplotlib==3.9.4
+scipy==1.14.1
+scikit-learn==1.6.1
+seaborn==0.13.2
