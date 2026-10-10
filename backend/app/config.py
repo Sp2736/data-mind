@@ -54,10 +54,22 @@ class Settings(BaseSettings):
     # RAG (local, Docker-free — Chroma persistent client + local embeddings)
     rag_persist_dir: str = "../data/rag_store"
     rag_embedding_model: str = "all-MiniLM-L6-v2"
+    rag_k: int = 5  # default number of similar insights to retrieve (T06)
+
+    # Chart quality (T09)
+    chart_min_grounding: float = 0.6  # drop charts with grounding rate below this
 
     # App
     environment: str = "development"
     cors_origins: str = "http://localhost:3000"
+
+    def model_post_init(self, __context) -> None:  # type: ignore[override]
+        """Startup guard: refuse to start with a weak JWT secret in non-dev environments (T14)."""
+        if self.environment != "development" and len(self.jwt_secret) < 32:
+            raise ValueError(
+                f"jwt_secret must be at least 32 characters in environment={self.environment!r}. "
+                "Set a long random value in your .env file."
+            )
 
 
 settings = Settings()

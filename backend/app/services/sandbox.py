@@ -3,11 +3,12 @@
 Two execution modes are available, controlled by the USE_DOCKER_SANDBOX env var:
 
 MODE 1 — Subprocess (USE_DOCKER_SANDBOX=false, the default)
-    Runs the generated script as a subprocess of the backend, in a fresh scratch
-    directory, under the same OS user.  A network-block wrapper is prepended and
-    POSIX resource limits (RLIMIT_AS / RLIMIT_CPU) are applied on Linux/Mac;
-    on Windows only the wall-clock timeout enforces limits.  Fast, zero overhead,
-    appropriate for local single-user development.
+    **For local development only.** Runs the generated script as a subprocess
+    of the backend, in a fresh scratch directory, under the same OS user.
+    A network-block wrapper is prepended and POSIX resource limits
+    (RLIMIT_AS / RLIMIT_CPU) are applied on Linux/Mac; on Windows only the
+    wall-clock timeout enforces limits.  Fast, zero overhead, suitable for
+    local single-user development but NOT for paper experiments.
 
 MODE 2 — Docker (USE_DOCKER_SANDBOX=true)
     Runs the generated script inside `datamind-sandbox:latest` via `docker run`:
@@ -15,10 +16,14 @@ MODE 2 — Docker (USE_DOCKER_SANDBOX=true)
       --network none    no outbound or inbound network from the container
       --memory          capped by SANDBOX_MEMORY_LIMIT (default 1g)
       --cpus            capped by SANDBOX_CPU_LIMIT (default 1)
+      --pids-limit 128  prevent fork-bomb
+      --cap-drop ALL    drop all Linux capabilities
+      --security-opt no-new-privileges  prevent privilege escalation
+      --tmpfs /tmp      in-memory /tmp (256 MiB)
     The dataset is bind-mounted read-only at /workspace/data.<ext>.
     The output directory is bind-mounted read-write at /workspace/output/.
-    Use this mode when running experiments for reproducibility / the paper —
-    it gives real OS-level network + filesystem isolation.
+    On timeout the named container is killed via `docker kill <name>`.
+    Use this mode when running experiments for reproducibility / the paper.
 
 The function signature `run_in_sandbox(code_text, dataset_path, run_id, attempt)`
 is identical in both modes; no calling code needs to change when switching.
@@ -27,10 +32,12 @@ Build the image once with:
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import textwrap
 import time
+import uuid
 from pathlib import Path
 
 from app.config import settings
@@ -53,7 +60,8 @@ _NETWORK_BLOCK_PREFIX = textwrap.dedent(
 
 _RESOURCE_LIMIT_PREFIX = textwrap.dedent(
     """
-    import sys
+    import sys, os
+    os.environ.setdefault("MPLBACKEND", "Agg")
     if sys.platform != "win32":
         try:
             import resource
@@ -125,6 +133,9 @@ def _collect_result(
 
 # ---------------------------------------------------------------------------
 # Mode 1: Subprocess executor
+# WARNING: subprocess mode is for local development only. It provides minimal
+# isolation — the generated script runs as the same OS user as the backend.
+# Never use subprocess mode for paper experiments or multi-user deployments.
 # ---------------------------------------------------------------------------
 
 def _run_subprocess(
@@ -143,6 +154,9 @@ def _run_subprocess(
     )
     script_path.write_text(prefix + "\n\n" + code_text, encoding="utf-8")
 
+    env = dict(os.environ)
+    env["MPLBACKEND"] = "Agg"
+
     started = time.monotonic()
     try:
         result = subprocess.run(
@@ -151,6 +165,7 @@ def _run_subprocess(
             capture_output=True,
             text=True,
             timeout=settings.sandbox_timeout_seconds,
+            env=env,
         )
         duration_ms = int((time.monotonic() - started) * 1000)
         return _collect_result(
@@ -180,10 +195,16 @@ def _run_docker(
     output_dir: Path,
     local_data_path: Path,
     script_path: Path,
+    run_id: str,
+    attempt: int,
 ) -> dict:
     # Write the raw script — no host-side prefix needed; isolation is enforced
     # by the container (--network none, memory/CPU limits on `docker run`).
     script_path.write_text(code_text, encoding="utf-8")
+
+    # Unique container name so we can kill it on timeout (T08).
+    uuid8 = uuid.uuid4().hex[:8]
+    container_name = f"datamind-{run_id[:8]}-{attempt}-{uuid8}"
 
     # Convert paths to POSIX strings for Docker CLI on Windows.
     def _win_path(p: Path) -> str:
@@ -195,13 +216,19 @@ def _run_docker(
 
     cmd = [
         "docker", "run", "--rm",
+        "--name", container_name,
         "--network", "none",
         f"--memory={settings.sandbox_memory_limit}",
         f"--cpus={settings.sandbox_cpu_limit}",
-        # dataset — read-only, at the path the LLM prompts advertise
+        # Hardening flags (T08)
+        "--pids-limit", "128",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--tmpfs", "/tmp:rw,size=256m",
+        # dataset — read-only
         "-v", f"{_win_path(script_path)}:/workspace/script.py:ro",
         "-v", f"{_win_path(local_data_path)}:/workspace/data{local_data_path.suffix}:ro",
-        # output dir — writable, so the script can save charts/cleaned CSVs
+        # output dir — writable
         "-v", f"{_win_path(output_dir)}:/workspace/output:rw",
         settings.sandbox_image,
         "python", "/workspace/script.py",
@@ -222,6 +249,11 @@ def _run_docker(
         )
     except subprocess.TimeoutExpired as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
+        # Kill the named container so it doesn't keep running after host timeout (T08).
+        try:
+            subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
+        except Exception:
+            pass
         return {
             "exit_code": -1,
             "stdout": exc.stdout or "",
@@ -274,6 +306,6 @@ def run_in_sandbox(
     script_path = workdir / f"attempt_{attempt}.py"
 
     if settings.use_docker_sandbox:
-        return _run_docker(code_text, workdir, output_dir, local_data_path, script_path)
+        return _run_docker(code_text, workdir, output_dir, local_data_path, script_path, run_id, attempt)
     else:
         return _run_subprocess(code_text, workdir, output_dir, script_path)

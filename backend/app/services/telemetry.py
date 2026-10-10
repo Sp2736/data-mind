@@ -1,14 +1,15 @@
 """Structured trial-record telemetry (Part C of todo-priority.md).
 
 Writes one JSON line per AnalysisRun to a JSONL file alongside the existing
-Postgres rows, so the paper's analysis notebook can query trials without
+SQLite rows, so the paper's analysis notebook can query trials without
 re-deriving anything from the live DB. This module ONLY appends — it never
-reads or mutates app state, so wiring it into the graph carries near-zero
-risk of behavioural regressions.
+reads or mutates app state.
 
-Wiring: a single call from `app/agents/graph.py::run_analysis`, after
-`ainvoke` returns, turns a finished `AnalysisState` into a record and
-appends it. See PROJECT_CHANGES.md for the exact diff.
+**Source routing (T05)**:
+- `experiment_arm is None` → app run → writes to ``data/logs/app_trials.jsonl``
+  with ``"source": "app"``.
+- `experiment_arm` set → experiment run → writes to ``data/logs/trials.jsonl``
+  with ``"source": "experiment"``.
 
 `judge_scores` is intentionally left null at write time — an offline batch
 job (not part of the live pipeline) fills it in later using
@@ -32,24 +33,30 @@ logger = logging.getLogger(__name__)
 _WRITE_LOCK = threading.Lock()
 
 
-def _trials_file_path() -> Path:
+def _trials_file_path(source: str = "experiment") -> Path:
+    """Return the correct JSONL path based on the record source."""
     logs_dir = Path(settings.logs_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)
+    if source == "app":
+        return logs_dir / "app_trials.jsonl"
     return logs_dir / "trials.jsonl"
 
 
 def build_trial_record(
     state: dict[str, Any],
-    experiment_arm: str = "baseline",
+    experiment_arm: str | None = None,
     trial_index: int = 0,
+    extra_meta: dict | None = None,
 ) -> dict[str, Any]:
     """Convert a finished AnalysisState into the Part C JSONL trial shape.
 
-    `experiment_arm` / `trial_index` are supplied by the caller because the
-    graph/state itself doesn't know which side of the RAG-vs-baseline
-    experiment it's running as part of — that's an experiment-harness
-    concern layered on top of the normal pipeline, not pipeline state.
+    `experiment_arm is None` → app run (source="app").
+    `experiment_arm` set → experiment run (source="experiment").
+    `extra_meta` is merged under "meta" (e.g. batch_id, rq_index from T10).
     """
+    source = "app" if experiment_arm is None else "experiment"
+    arm = experiment_arm or "baseline"
+
     attempts_out = []
     code_by_attempt = {c["attempt_number"]: c["code_text"] for c in state.get("code_history", [])}
     for execution in state.get("execution_history", []):
@@ -71,12 +78,18 @@ def build_trial_record(
         last = state.get("execution_history", [])
         failure_reason = classify_failure(last[-1]["stderr"]) if last else "unknown"
 
+    sandbox_duration_ms = sum(e.get("duration_ms", 0) for e in state.get("execution_history", []))
+    node_latency = state.get("node_llm_latency_ms", {})
+    llm_duration_ms = sum(node_latency.values()) if node_latency else 0
+
     return {
         "run_id": state.get("run_id"),
         "dataset_id": state.get("dataset_id"),
         "rq_id": state.get("rq_id"),
-        "experiment_arm": experiment_arm,
+        "source": source,
+        "experiment_arm": arm,
         "trial_index": trial_index,
+        "meta": extra_meta or {},
         "question": {
             "category": state.get("category"),
             "text": state.get("question_text"),
@@ -93,14 +106,21 @@ def build_trial_record(
             "total_tokens": state.get("total_tokens", 0),
             "llm_call_count": state.get("llm_call_count", 0),
             "correction_attempts": max(state.get("attempts", 1) - 1, 0),
-            "total_duration_ms": sum(e.get("duration_ms", 0) for e in state.get("execution_history", [])),
+            # T07 latency breakdown
+            "end_to_end_ms": state.get("end_to_end_ms", 0),
+            "total_duration_ms": state.get("end_to_end_ms", 0),  # backward compat alias
+            "sandbox_duration_ms": sandbox_duration_ms,
+            "llm_duration_ms": llm_duration_ms,
+            "retry_wait_ms": int(state.get("retry_wait_seconds", 0.0) * 1000),
             # §4.3.4 — per-node breakdown
             "node_llm_calls": state.get("node_llm_calls", {}),
             "node_prompt_tokens": state.get("node_prompt_tokens", {}),
             "node_completion_tokens": state.get("node_completion_tokens", {}),
             "node_total_tokens": state.get("node_total_tokens", {}),
+            "node_llm_latency_ms": node_latency,
             # §4.3.4 — rate-limit resilience
             "rate_limit_retry_count": state.get("rate_limit_retry_count", 0),
+            "other_retry_count": state.get("other_retry_count", 0),
         },
         "judge_scores": {
             "relevance": None,
@@ -143,18 +163,28 @@ def classify_failure(stderr: str) -> str:
 
 def record_trial(
     state: dict[str, Any],
-    experiment_arm: str = "baseline",
+    experiment_arm: str | None = None,
     trial_index: int = 0,
+    extra_meta: dict | None = None,
 ) -> None:
-    """Append one trial record to the JSONL telemetry file.
+    """Append one trial record to the correct JSONL telemetry file.
+
+    - experiment_arm is None  → app run → app_trials.jsonl
+    - experiment_arm set      → experiment run → trials.jsonl
 
     Best-effort: any failure here is logged and swallowed so telemetry can
     never take down a real user's pipeline run.
     """
     try:
-        record = build_trial_record(state, experiment_arm=experiment_arm, trial_index=trial_index)
+        record = build_trial_record(
+            state,
+            experiment_arm=experiment_arm,
+            trial_index=trial_index,
+            extra_meta=extra_meta,
+        )
+        source = record["source"]
         line = json.dumps(record, default=str)
-        path = _trials_file_path()
+        path = _trials_file_path(source)
         with _WRITE_LOCK:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
@@ -164,9 +194,30 @@ def record_trial(
         logger.exception("telemetry: failed to record trial for run_id=%s", state.get("run_id"))
 
 
-def iter_trials(path: Path | None = None):
+def record_rq_batch(record: dict[str, Any], source: str = "app") -> None:
+    """Append one RQ-batch record to the correct JSONL log (T07).
+
+    - source="app"        → app_rq_batches.jsonl
+    - source="experiment" → rq_batches.jsonl
+    """
+    try:
+        logs_dir = Path(settings.logs_dir)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        fname = "app_rq_batches.jsonl" if source == "app" else "rq_batches.jsonl"
+        path = logs_dir / fname
+        line = json.dumps(record, default=str)
+        with _WRITE_LOCK:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+    except Exception:
+        logger.exception("telemetry: failed to record rq_batch")
+
+
+def iter_trials(path: Path | None = None, source: str = "experiment"):
     """Read back trial records for the offline batch-scoring script / notebook."""
-    p = path or _trials_file_path()
+    p = path or _trials_file_path(source)
     if not p.exists():
         return
     with open(p, "r", encoding="utf-8") as f:
