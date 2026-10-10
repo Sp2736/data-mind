@@ -7,7 +7,7 @@
 [![Backend](https://img.shields.io/badge/backend-FastAPI-0f766e?style=flat-square)](#-backend)
 [![Orchestration](https://img.shields.io/badge/orchestration-LangGraph-6d28d9?style=flat-square)](#-the-analysis-pipeline)
 [![Frontend](https://img.shields.io/badge/frontend-Next.js-black?style=flat-square)](#-frontend)
-[![Database](https://img.shields.io/badge/database-PostgreSQL%20%2B%20pgvector-336791?style=flat-square)](#-persistence-layer)
+[![Database](https://img.shields.io/badge/database-SQLite-003B57?style=flat-square)](#-persistence-layer)
 [![Sandbox](https://img.shields.io/badge/execution-Docker%20sandboxed-2496ed?style=flat-square)](#-sandboxed-code-execution)
 [![RAG](https://img.shields.io/badge/retrieval-Chroma%20%2B%20MiniLM-f97316?style=flat-square)](#-retrieval-augmented-question-generation-rag)
 [![License](https://img.shields.io/badge/license-see%20LICENSE-lightgrey?style=flat-square)](./LICENSE)
@@ -84,7 +84,7 @@ flowchart LR
     end
 
     subgraph Data["🗄️ Persistence"]
-        PG[(PostgreSQL + pgvector)]
+        DB[(SQLite — aiosqlite)]
         FS[(Local filesystem<br/>raw datasets · sandbox I/O · logs)]
     end
 
@@ -103,12 +103,11 @@ flowchart LR
     end
 
     subgraph LLMs["☁️ LLM Providers"]
-        OR[OpenRouter free-tier models]
-        GE[Google Gemini]
+        GE[Google Gemini API]
     end
 
     UI <-->|REST + WS| API
-    API --> PG
+    API --> DB
     API --> FS
     API --> QG
     API --> Graph
@@ -118,7 +117,7 @@ flowchart LR
     Graph -->|generate / correct code| LLMs
     Graph -->|execute| Docker
     Docker --> FS
-    Graph --> PG
+    Graph --> DB
     Graph -->|append trial record| FS
 
     style Client fill:#111827,color:#e5e7eb,stroke:#334155
@@ -130,7 +129,7 @@ flowchart LR
     style LLMs fill:#111827,color:#e5e7eb,stroke:#334155
 ```
 
-**Everything runs locally except the LLM API calls.** Postgres, the vector store, the sandbox, and the filesystem are all self-hosted — there's no managed cloud dependency to stand this project up beyond an OpenRouter or Google API key.
+**Everything runs locally except the LLM API calls.** SQLite, the Chroma vector store, the sandbox, and the filesystem are all self-hosted — there's no managed cloud dependency to stand this project up beyond a Google Gemini API key.
 
 ---
 
@@ -144,8 +143,7 @@ Each **Research Question** is answered by an independent run of a compiled **Lan
 
 ```mermaid
 stateDiagram-v2
-    [*] --> code_generator: category != system_profile
-    [*] --> insight_writer: category == system_profile (bypass execution)
+    [*] --> code_generator: every research question
 
     code_generator --> sandbox_execute: script written
 
@@ -163,12 +161,12 @@ stateDiagram-v2
 
 | Node | Responsibility | LLM call? |
 |---|---|---|
-| `code_generator` | Writes a self-contained pandas/matplotlib script for the research question, using only the dataset's schema (never raw data) | ✅ |
-| `sandbox_execute` | Runs the script in an isolated Docker container; captures stdout/stderr/exit code/output files | ❌ |
+| `code_generator` | Writes a self-contained pandas/matplotlib script for the research question, using only the dataset's schema (never raw data). Handles all categories including `system_profile`. | ✅ |
+| `sandbox_execute` | Runs the script in an isolated Docker container (or subprocess in dev mode); captures stdout/stderr/exit code/output files | ❌ |
 | `code_corrector` | Reads the traceback from a failed attempt and rewrites the script to fix the specific error | ✅ |
 | `result_analyzer` | Parses successful stdout into structured findings | — |
-| `insight_writer` | Converts findings into a plain-English, numerically-grounded summary + key takeaways | ✅ |
-| `visualization_builder` | Selects and binds the right chart type to the insight | — |
+| `insight_writer` | Converts findings into a plain-English, numerically-grounded summary + key takeaways. Requires non-empty stdout. | ✅ |
+| `visualization_builder` | Selects and binds the right chart type to the insight | ✅ |
 | `give_up` | Terminal failure state once the retry budget is exhausted; records the last traceback | ❌ |
 
 The self-correction loop is bounded by `max_attempts` (configurable per run) so a persistently broken generation can't loop forever — it fails cleanly and is logged as a failure with its full traceback, which itself becomes data (see [Failure Taxonomy](#-evaluation--research-instrumentation)).
@@ -279,13 +277,13 @@ erDiagram
     }
 ```
 
-Postgres holds everything durable; the local filesystem holds raw dataset files, per-attempt generated code, sandbox output artifacts, and the append-only research telemetry log (`data/logs/trials.jsonl`) — kept deliberately separate from the DB so the paper's analysis scripts can read it without touching the live application state.
+**SQLite** (`aiosqlite`) holds all durable relational state. The local filesystem holds raw dataset files, per-attempt generated code, sandbox output artifacts, and the append-only research telemetry logs (`data/logs/trials.jsonl`, `data/logs/rq_batches.jsonl`) — kept deliberately separate from the DB so the paper's analysis scripts can read them without touching the live application state. Vector search is handled by **Chroma** (local persistent client, no separate server process).
 
 ---
 
 ## ⚙ Backend
 
-**Stack:** FastAPI · SQLAlchemy (async) · PostgreSQL + `pgvector` · LangGraph · Chroma · Docker SDK/CLI · OpenRouter / Google Gemini via a provider-agnostic LLM client with `tenacity`-based retry for free-tier rate limits.
+**Stack:** FastAPI · SQLAlchemy (async) · **SQLite** (`aiosqlite`) · LangGraph · Chroma · Docker SDK/CLI · **Google Gemini** via `langchain-google-genai` with `tenacity`-based retry for rate limits. OpenRouter is supported as an undocumented secondary provider.
 
 Key modules:
 
@@ -321,7 +319,7 @@ DataMind was built to *answer a research question*, not just to work. Every run 
 - **Execution Metrics** — first-pass success rate, eventual success rate, mean attempts to success, and a rule-based failure taxonomy (timeout / KeyError / dtype mismatch / malformed JSON / sandbox OOM), all derived directly from the append-only trial log.
 - **Cost Metrics** — total tokens and LLM call count per run, captured per trial for a token-cost-per-successful-insight comparison between the RAG and baseline arms.
 
-Every trial — RAG arm or baseline, success or failure — becomes one line in `data/logs/trials.jsonl`, independent of the live Postgres state, so a paired statistical comparison (t-test / Wilcoxon, with confidence intervals) can be run entirely offline against that log.
+Every trial — RAG arm or baseline, success or failure — becomes one line in `data/logs/trials.jsonl`, independent of the live SQLite state, so a paired statistical comparison (t-test / Wilcoxon, with confidence intervals) can be run entirely offline against that log. App runs write to `data/logs/app_trials.jsonl` to keep experiment data clean.
 
 ---
 
@@ -351,10 +349,10 @@ cd data-mind
 
 # --- backend ---
 cd backend
-cp .env.example .env        # fill in DATABASE_URL, an LLM API key, etc.
+cp .env.example .env        # set GOOGLE_API_KEY; SQLite is configured out of the box
 pip install -r requirements.txt
-docker compose up -d        # Postgres
-docker build -t datamind-sandbox:latest -f sandbox/Dockerfile .
+# No separate database server needed — SQLite file is created automatically.
+docker build -t datamind-sandbox:latest -f sandbox/Dockerfile sandbox/
 alembic upgrade head
 python -m app.seed
 uvicorn app.main:app --reload
@@ -368,6 +366,8 @@ npm run dev
 
 Then open the frontend, upload a dataset, and watch the pipeline run.
 
+> **Note:** The very first time RAG is triggered (when generating questions), the embedding model (`all-MiniLM-L6-v2`, ~80 MB) is downloaded from HuggingFace automatically. This happens once and is cached locally.
+
 ---
 
 ## 🔧 Configuration Reference
@@ -376,13 +376,15 @@ The most relevant `.env` values (see `app/config.py` for the full list):
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Async Postgres connection string |
-| `OPENROUTER_API_KEY` / `GOOGLE_API_KEY` | LLM provider credentials |
-| `QUESTION_GENERATOR_MODEL`, `CODE_GENERATOR_MODEL`, `CODE_CORRECTOR_MODEL`, `INSIGHT_WRITER_MODEL` | Per-node model selection |
-| `USE_DOCKER_SANDBOX` | `true` for real Docker isolation, `false` for fast local dev execution |
+| `DATABASE_URL` | SQLite async connection string (default: `sqlite+aiosqlite:///../data/datamind.db`) |
+| `GOOGLE_API_KEY` | Google Gemini API key — the supported LLM provider |
+| `QUESTION_GENERATOR_MODEL`, `CODE_GENERATOR_MODEL`, `CODE_CORRECTOR_MODEL`, `INSIGHT_WRITER_MODEL` | Per-node model selection (e.g. `google:gemini-3.1-flash-lite`) |
+| `RQ_JUDGE_MODEL`, `CODE_JUDGE_MODEL`, `INSIGHT_JUDGE_MODEL` | Held-out judge models for offline evaluation scripts |
+| `USE_DOCKER_SANDBOX` | `true` for real Docker isolation, `false` for fast local dev/subprocess execution |
 | `SANDBOX_TIMEOUT_SECONDS`, `SANDBOX_MEMORY_LIMIT`, `SANDBOX_CPU_LIMIT` | Sandbox resource caps |
-| `RAG_PERSIST_DIR`, `RAG_EMBEDDING_MODEL` | Local vector store location and embedding model |
-| `LOGS_DIR` | Where `trials.jsonl` research telemetry is written |
+| `RAG_PERSIST_DIR`, `RAG_EMBEDDING_MODEL` | Local Chroma vector store location and embedding model |
+| `RAG_K` | Number of similar past insights to retrieve (default: `5`) |
+| `LOGS_DIR` | Where `trials.jsonl` / `app_trials.jsonl` research telemetry is written |
 
 ---
 
@@ -412,12 +414,15 @@ data-mind/
 
 ## 🗺 Roadmap
 
-- [ ] Insight-quality evaluation module (numerical faithfulness, takeaway groundedness, readability, caveat coverage)
-- [ ] `experiment/run_experiment.py` — paired RAG-vs-baseline trial harness (N reps × 2 arms)
-- [ ] `experiment/judge_trials.py` — offline batch judge scoring into `trials_judged.jsonl`
-- [ ] Explicit `rq_judge_model` / `code_judge_model` config fields
-- [ ] Per-node LLM call/token breakdown in telemetry
-- [ ] Rate-limit retry counting for the resilience metric
+- [x] Insight-quality evaluation module (`app/evaluation/insight_quality.py`) — numerical faithfulness, takeaway groundedness, readability, caveat coverage
+- [x] `experiment/run_experiment.py` — paired RAG-vs-baseline trial harness (N reps × 2 arms)
+- [x] `experiment/judge_trials.py` — offline batch judge scoring into `trials_judged.jsonl`
+- [x] Explicit `rq_judge_model` / `code_judge_model` / `insight_judge_model` config fields
+- [x] Per-node LLM call/token breakdown in telemetry (`node_llm_calls`, `node_prompt_tokens`, `node_completion_tokens`, `node_total_tokens`)
+- [x] Rate-limit retry counting for the resilience metric (`rate_limit_retry_count` in `AnalysisState`)
+- [ ] Full vocabulary canonicalisation (category aliases, output type normalisation)
+- [ ] Polling termination once all runs reach terminal status
+- [ ] RAG leakage fix — exclude current dataset from retrieval
 
 ---
 
@@ -426,5 +431,5 @@ data-mind/
 DataMind is developed as a B.Tech research project studying whether retrieval-augmented generation measurably improves the relevance, specificity, and actionability of autonomously generated research questions over a non-RAG baseline — and what that improvement costs in tokens. Self-correcting sandboxed code execution is a supporting engineering capability that makes the pipeline reliable enough to generate the trial data the comparison depends on.
 
 <div align="center">
-<sub>Built locally-first, end to end — Postgres, the vector store, and the sandbox all run on your own machine.</sub>
+<sub>Built locally-first, end to end — SQLite, the Chroma vector store, and the sandbox all run on your own machine.</sub>
 </div>

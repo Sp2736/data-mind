@@ -1,6 +1,8 @@
 # DataMind — Local Setup Guide
 
-This guide covers how to set up the DataMind project entirely locally on your machine. This setup is optimized to run completely offline (zero API cost) using **Ollama** for language models, **SQLite** for the database, and **Chroma** (local) for RAG.
+This guide covers how to set up the DataMind project entirely locally on your machine.
+The project uses **Google Gemini** for language models, **SQLite** (`aiosqlite`) for
+the database, and **Chroma** (local persistent client) for RAG.
 
 ---
 
@@ -10,28 +12,14 @@ Before starting, ensure you have the following installed:
 - **Python 3.10+**
 - **Git**
 - **Docker Desktop** (Required for the `datamind-sandbox` to safely execute AI-generated code)
-- **Ollama** (Download and install from [ollama.com](https://ollama.com))
+- **Google Gemini API Key** — get one free at [https://aistudio.google.com](https://aistudio.google.com)
+  (the `gemini-3.1-flash-lite` model used by default is on the free tier)
 
 ---
 
-## 2. Pull Ollama Models
+## 2. Kaggle Credentials (Required for seeding data)
 
-The pipeline uses a split-model architecture optimized for speed and accuracy. Open a terminal and run the following commands to download the models into Ollama:
-
-```bash
-# Used for code generation and correction (excellent JSON and code compliance)
-ollama run gemma3:4b
-
-# Used for question generation and insight writing (fast and articulate NL)
-ollama run qwen2.5:3b
-```
-*(Once they finish downloading and give you a prompt, you can just type `/bye` to exit. The models are now cached.)*
-
----
-
-## 3. Kaggle Credentials (Required for seeding data)
-
-The backend needs to fetch datasets directly from Kaggle.
+The backend can fetch datasets directly from Kaggle.
 1. Go to [kaggle.com/settings](https://www.kaggle.com/settings) and log in.
 2. Scroll down to the **API** section and click **Create New Token**.
 3. Create a `.kaggle` folder in your user directory (e.g., `C:\Users\YourName\.kaggle` on Windows, or `~/.kaggle` on Mac/Linux).
@@ -41,7 +29,7 @@ The backend needs to fetch datasets directly from Kaggle.
 
 ---
 
-## 4. Backend Setup
+## 3. Backend Setup
 
 Open a terminal and navigate to the project root directory.
 
@@ -59,10 +47,15 @@ python -m venv venv
 ```bash
 pip install -r requirements.txt
 ```
-*(This will install FastAPI, LangGraph, SQLAlchemy, as well as `chromadb` and `sentence-transformers` for the RAG implementation, and the Kaggle API).*
+*(This installs FastAPI, LangGraph, SQLAlchemy, `aiosqlite`, `chromadb`,
+`sentence-transformers` for RAG, `langchain-google-genai` for the LLM, and the Kaggle API.)*
 
 ### D. Configure Environment Variables
-In the `backend` folder, duplicate `.env.example` (if it exists) to `.env`, or just create a `.env` file with the following contents:
+In the `backend` folder, copy `.env.example` to `.env`:
+```bash
+cp .env.example .env   # Windows: copy .env.example .env
+```
+Then open `.env` and fill in:
 
 ```env
 DATABASE_URL=sqlite+aiosqlite:///../data/datamind.db
@@ -70,9 +63,7 @@ DATABASE_URL_DIRECT=sqlite:///../data/datamind.db
 
 LOCAL_USER_EMAIL=you@local
 LOCAL_USER_PASSWORD=changeme_local
-JWT_SECRET=42c88bd4d4acc9dd19436a5dcc4e1b9f6c18d74824c68e1976453012e5e6e4e4
-JWT_ALGORITHM=HS256
-JWT_EXPIRE_MINUTES=10080
+JWT_SECRET=replace_with_a_long_random_string_at_least_32_chars
 
 DATA_ROOT=../data
 DATASETS_RAW_DIR=${DATA_ROOT}/datasets/raw
@@ -81,14 +72,13 @@ GENERATED_CODE_DIR=${DATA_ROOT}/generated_code
 OUTPUTS_DIR=${DATA_ROOT}/outputs
 LOGS_DIR=${DATA_ROOT}/logs
 
-# --- LLM PROVIDER (Ollama) ---
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
+# --- LLM Provider: Google Gemini (the supported provider) ---
+GOOGLE_API_KEY=your_key_here   # from https://aistudio.google.com
 
-QUESTION_GENERATOR_MODEL=qwen2.5:3b
-CODE_GENERATOR_MODEL=gemma3:4b
-CODE_CORRECTOR_MODEL=gemma3:4b
-INSIGHT_WRITER_MODEL=qwen2.5:3b
+QUESTION_GENERATOR_MODEL=google:gemini-3.1-flash-lite
+CODE_GENERATOR_MODEL=google:gemini-3.1-flash-lite
+CODE_CORRECTOR_MODEL=google:gemini-3.1-flash-lite
+INSIGHT_WRITER_MODEL=google:gemini-3.1-flash-lite
 LLM_TEMPERATURE=0.2
 
 LANGCHAIN_TRACING_V2=false
@@ -99,47 +89,49 @@ SANDBOX_TIMEOUT_SECONDS=60
 SANDBOX_MEMORY_LIMIT=1g
 SANDBOX_CPU_LIMIT=1
 
+# Set to true for real Docker isolation (required for paper experiments).
+# Keep false for fast local subprocess execution during development.
+USE_DOCKER_SANDBOX=false
+
 ENVIRONMENT=development
 CORS_ORIGINS=http://localhost:3000
 ```
 
+> **No database server needed.** SQLite creates the `data/datamind.db` file automatically
+> when Alembic runs. There is no Postgres or pgvector dependency.
+
 ### E. Initialize the Database
-Run Alembic to create the SQLite database file (`data/datamind.db`) and apply the schemas:
+Run Alembic to create the SQLite database file and apply the schema:
 ```bash
 alembic upgrade head
 ```
 
 ### F. Create the Local User
-Since the app requires authentication, you must manually seed the test user (`you@local`) into the SQLite database. Run this quick python script:
+Run the seed script to create the initial user:
 ```bash
-python -c "
-import asyncio, uuid
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import text
-async def seed():
-    engine = create_async_engine('sqlite+aiosqlite:///../data/datamind.db')
-    async with async_sessionmaker(engine)() as db:
-        await db.execute(text('INSERT INTO local_user (id, email) VALUES (:id, :email)'), {'id': str(uuid.uuid4()), 'email': 'you@local'})
-        await db.commit()
-asyncio.run(seed())
-"
+python -m app.seed
 ```
+This creates the `you@local` user from the `LOCAL_USER_EMAIL` / `LOCAL_USER_PASSWORD`
+settings in `.env`.
 
 ---
 
-## 5. Build the Sandbox Docker Image
+## 4. Build the Sandbox Docker Image
 
 The system isolates generated code execution inside a Docker container.
 Open a new terminal at the project root and run:
 ```bash
-cd sandbox
-docker build -t datamind-sandbox:latest .
+docker build -t datamind-sandbox:latest -f backend/sandbox/Dockerfile backend/sandbox/
 ```
-*(Ensure Docker Desktop is running before executing this).*
+*(Ensure Docker Desktop is running before executing this.)*
+
+> **Development shortcut:** Set `USE_DOCKER_SANDBOX=false` in `.env` to skip Docker
+> and run generated code in a subprocess instead. This is faster but provides no
+> network isolation. Always use Docker (`USE_DOCKER_SANDBOX=true`) for paper experiments.
 
 ---
 
-## 6. Run the Application
+## 5. Run the Application
 
 You need two terminals for the backend and frontend.
 
@@ -149,7 +141,9 @@ cd backend
 # Ensure venv is activated
 uvicorn app.main:app --reload --port 8000
 ```
-> **Note:** The very first time the RAG system is triggered (when generating questions), it will automatically download a ~80MB embedding model (`all-MiniLM-L6-v2`) from HuggingFace. This only happens once.
+> **Note:** The very first time the RAG system is triggered (when generating questions),
+> it will automatically download the `all-MiniLM-L6-v2` embedding model (~80 MB) from
+> HuggingFace. This only happens once and is cached locally.
 
 **Terminal 2: Frontend**
 ```bash
@@ -160,11 +154,13 @@ npm run dev
 
 ---
 
-## 7. Seeding Datasets (Testing the Pipeline)
+## 6. Seeding Datasets (Testing the Pipeline)
 
-To run high-volume testing of datasets without clicking the UI, you can use the `seed_datasets.py` script located in the root of the project.
+To run high-volume testing of datasets without clicking the UI, use the `seed_datasets.py`
+script located in the root of the project.
 
-While the backend is running, open a third terminal (with the backend `venv` activated) at the project root and run:
+While the backend is running, open a third terminal (with the backend `venv` activated)
+at the project root and run:
 
 ```bash
 # Seed 1 dataset and wait for it to process completely to test the flow
@@ -174,4 +170,29 @@ python seed_datasets.py --email you@local --password changeme_local --limit 1 --
 python seed_datasets.py --email you@local --password changeme_local
 ```
 
-This will automatically hit your local backend API, which will authenticate, download from Kaggle, profile the data in the Docker sandbox, and populate your SQLite DB.
+This hits your local backend API, which will authenticate, download from Kaggle,
+profile the data, and populate your SQLite DB.
+
+---
+
+## 7. Running Paper Experiments
+
+The experiment harness in `backend/experiment/` runs paired RAG-vs-baseline trials.
+
+```bash
+cd backend
+# Dry run — shows plan without making any LLM/DB calls
+python -m experiment.run_experiment --dataset-ids ds_a ds_b --n-reps 2 --rq-only --dry-run
+
+# Real run (requires Docker sandbox for reproducibility)
+USE_DOCKER_SANDBOX=true python -m experiment.run_experiment \
+  --dataset-ids ds_a ds_b --n-reps 5 --max-rqs 8
+
+# Offline batch judging (after data collection)
+python -m experiment.judge_trials \
+  --rq-judge-model google:gemini-1.5-pro \
+  --code-judge-model google:gemini-1.5-pro \
+  --insight-judge-model google:gemini-1.5-pro
+```
+
+See `DATAMIND_FIX_INSTRUCTIONS.md` §T10–T12 for the full experiment protocol.

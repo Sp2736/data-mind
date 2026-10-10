@@ -94,7 +94,7 @@ These support the paper's "cost" side of the RAG-vs-baseline trade-off and demon
 
 ## Part C — Backend Logging System Design (supports every metric above)
 
-To make every metric in Part B computable without re-deriving it later, the pipeline should log a **structured trial record** per `AnalysisRun`, not just the existing DB rows. Recommended shape (JSONL, one line per run, written alongside the existing Postgres rows so it's queryable independently for the paper's analysis notebook):
+To make every metric in Part B computable without re-deriving it later, the pipeline logs a **structured trial record** per `AnalysisRun`, not just the existing DB rows. App runs write to `data/logs/app_trials.jsonl`; experiment runs write to `data/logs/trials.jsonl`. Recommended shape (JSONL, one line per run, queryable independently for the paper's analysis notebook):
 
 ```json
 {
@@ -121,7 +121,7 @@ To make every metric in Part B computable without re-deriving it later, the pipe
 
 ## Part D — Diagrams for the Paper (short descriptions)
 
-1. **System Architecture Diagram** — top-level boxes: Frontend (Next.js) ↔ FastAPI Backend ↔ PostgreSQL (+ pgvector) ↔ Docker Sandbox (network-isolated) ↔ OpenRouter LLM API. Shows the local-only, self-contained deployment boundary — useful for establishing reproducibility/cost claims.
+1. **System Architecture Diagram** — top-level boxes: Frontend (Next.js) ↔ FastAPI Backend ↔ SQLite (aiosqlite) ↔ Docker Sandbox (network-isolated) ↔ Google Gemini API. Chroma vector store sits alongside as a local process. Shows the local-only, self-contained deployment boundary — useful for establishing reproducibility/cost claims.
 
 2. **LangGraph Pipeline / State Machine Diagram** — the per-question graph: `code_generator → result_analyzer → (conditional: success → insight_writer → visualization_builder → END; failure+attempts left → code_corrector → back to result_analyzer; failure+exhausted → give_up → END)`. This is the paper's central "self-correcting agent" figure — one diagram reviewers will look for immediately.
 
