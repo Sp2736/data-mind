@@ -1,33 +1,7 @@
-"""Offline batch judge script — fills judge_scores in trials.jsonl.
+"""Offline batch judge script (T12).
 
-Usage (from the `backend/` directory, with the venv active):
-
-    python -m experiment.judge_trials \\
-        [--input  ../data/logs/trials.jsonl] \\
-        [--output ../data/logs/trials_judged.jsonl] \\
-        [--rq-judge-model  google:gemini-3.1-flash-lite] \\
-        [--code-judge-model google:gemini-3.1-flash-lite] \\
-        [--insight-judge-model google:gemini-3.1-flash-lite]
-
-What it does
-------------
-1. Reads every record from `--input` via `telemetry.iter_trials()`.
-2. For trials whose judge_scores fields are still null:
-   a. Computes automatic RQ metrics   (rq_quality.compute_automatic_metrics)
-   b. Computes automatic code signals (code_quality.compute_static_signals)
-   c. Computes automatic insight metrics (insight_quality.compute_automatic_insight_metrics)
-   d. Calls judge_rq_batch()          for relevance/specificity/actionability
-   e. Calls judge_code_quality()      for the best-succeeded code attempt
-   f. Calls judge_insight_batch()     for groundedness / caveat coverage
-3. Merges scores into the record and writes to `--output` (never mutates input).
-4. Trials already scored in the output file are copied as-is (idempotent).
-
-Notes
------
-- Uses asyncio.run() — no FastAPI server needed.
-- All judge LLM calls are batched sequentially (not concurrently) to avoid
-  blowing through free-tier rate limits. Add asyncio.gather() later if needed.
-- Progress is reported every 10 trials (or via tqdm if installed).
+Reads rq_batches.jsonl and trials.jsonl.
+Outputs rq_batches_judged.jsonl and trials_judged.jsonl.
 """
 from __future__ import annotations
 
@@ -36,320 +10,250 @@ import asyncio
 import json
 import logging
 import sys
+import random
 from pathlib import Path
 from typing import Any
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+from app.config import settings
+from app.evaluation.rq_quality import compute_automatic_metrics, judge_rq_batch
+from app.evaluation.code_quality import compute_static_signals, judge_code_quality, check_reproducibility
+from app.evaluation.insight_quality import compute_automatic_insight_metrics, judge_insight_batch
+from app.agents.schemas import ResearchQuestionItem
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("experiment.judge_trials")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    res = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    res.append(json.loads(line))
+                except Exception:
+                    pass
+    return res
 
 
-def _try_tqdm(iterable, total: int, desc: str):
-    try:
-        from tqdm import tqdm  # type: ignore
-
-        return tqdm(iterable, total=total, desc=desc)
-    except ImportError:
-        return iterable
+def _write_jsonl(path: Path, data: list[dict]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for d in data:
+            f.write(json.dumps(d, default=str) + "\n")
 
 
-def _already_scored(trial: dict) -> bool:
-    """True if all LLM-judge scores in the record are already filled."""
-    js = trial.get("judge_scores") or {}
-    return all(
-        js.get(k) is not None
-        for k in ("relevance", "specificity", "actionability", "code_quality", "insight")
-    )
-
-
-def _best_stdout(trial: dict) -> str:
-    """Return stdout from the last succeeded attempt, or last attempt overall."""
-    attempts = trial.get("attempts") or []
-    for attempt in reversed(attempts):
-        if attempt.get("succeeded"):
-            return attempt.get("stdout", "")
-    return attempts[-1].get("stdout", "") if attempts else ""
-
-
-def _best_code(trial: dict) -> str:
-    """Return code from the last succeeded attempt, or last attempt overall."""
-    attempts = trial.get("attempts") or []
-    for attempt in reversed(attempts):
-        if attempt.get("succeeded"):
-            return attempt.get("code", "")
-    return attempts[-1].get("code", "") if attempts else ""
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Main scoring coroutine
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-async def _score_trial(
-    trial: dict,
-    rq_judge_model: str | None,
-    code_judge_model: str | None,
-    insight_judge_model: str | None,
+async def _judge_batch_record(
+    batch: dict,
+    judge_model: str,
+    sem: asyncio.Semaphore,
 ) -> dict:
-    """Score one trial; return an augmented copy with judge_scores filled."""
-    from app.evaluation.rq_quality import compute_automatic_metrics, judge_rq_batch
-    from app.evaluation.code_quality import compute_static_signals, judge_code_quality
-    from app.evaluation.insight_quality import (
-        compute_automatic_insight_metrics,
-        judge_insight_batch,
-    )
-    from app.agents.schemas import ResearchQuestionItem
+    if "judge" in batch:
+        return batch  # idempotent
+
+    async with sem:
+        out = dict(batch)
+        try:
+            questions_raw = batch.get("questions_raw", [])
+            questions = [
+                ResearchQuestionItem(
+                    category=q.get("category", "distribution"),
+                    question_text=q.get("question_text", ""),
+                    target_columns=q.get("target_columns", []),
+                    rationale=q.get("rationale", ""),
+                    expected_output_type=q.get("expected_output_type", "statistic"),
+                ) for q in questions_raw
+            ]
+            profile_snap = batch.get("profile_snapshot", {})
+            schema = profile_snap.get("schema_summary", [])
+            stats = profile_snap.get("stats_summary", [])
+            corr = profile_snap.get("correlation_summary", [])
+            
+            auto_metrics = compute_automatic_metrics(questions, schema, stats_summary=stats)
+            rq_scores = await judge_rq_batch(questions, schema, stats, corr, judge_model=judge_model)
+            
+            out["judge"] = {
+                "rq_scores": [s.model_dump() for s in rq_scores],
+                "auto": auto_metrics.model_dump()
+            }
+        except Exception as e:
+            out["judge"] = {"error": str(e)}
+        return out
+
+
+async def _judge_trial_record(
+    trial: dict,
+    code_judge_model: str,
+    insight_judge_model: str,
+    sem: asyncio.Semaphore,
+    do_reproducibility: bool,
+) -> dict:
+    if trial.get("judge_scores", {}).get("skipped") or all(
+        k in trial.get("judge_scores", {})
+        for k in ("code_static", "code_quality", "insight_automatic", "insight")
+    ):
+        return trial
 
     out = dict(trial)
-    js = dict(trial.get("judge_scores") or {})
-
-    question_data = trial.get("question") or {}
-    insight_data = trial.get("insight") or {}
-    stdout = _best_stdout(trial)
-    code_text = _best_code(trial)
-
-    # ── Automatic RQ metrics ──────────────────────────────────────────────────
-    try:
-        rq_item = ResearchQuestionItem(
-            category=question_data.get("category", "distribution"),
-            question_text=question_data.get("text", ""),
-            target_columns=question_data.get("target_columns", []),
-            rationale="",
-            expected_output_type="statistic",
-        )
-        auto_rq = compute_automatic_metrics([rq_item], schema_summary=[])
-        js["rq_automatic"] = auto_rq.model_dump()
-    except Exception:
-        logger.warning("RQ automatic metrics failed for run_id=%s", trial.get("run_id"))
-
-    # ── LLM-judge RQ scores ───────────────────────────────────────────────────
-    if js.get("relevance") is None:
-        try:
-            rq_item = ResearchQuestionItem(
-                category=question_data.get("category", "distribution"),
-                question_text=question_data.get("text", ""),
-                target_columns=question_data.get("target_columns", []),
-                rationale="",
-                expected_output_type="statistic",
-            )
-            rq_scores = await judge_rq_batch(
-                [rq_item],
-                schema_summary=[],
-                stats_summary=[],
-                judge_model=rq_judge_model,
-            )
-            if rq_scores:
-                s = rq_scores[0]
-                js["relevance"] = s.relevance
-                js["specificity"] = s.specificity
-                js["actionability"] = s.actionability
-                js["rq_justification"] = s.justification
-        except Exception:
-            logger.warning("RQ judge failed for run_id=%s", trial.get("run_id"))
-
-    # ── Automatic code signals ────────────────────────────────────────────────
-    if code_text:
-        try:
-            static = compute_static_signals(code_text)
-            js["code_static"] = static.model_dump()
-        except Exception:
-            logger.warning("Code static signals failed for run_id=%s", trial.get("run_id"))
-
-        # ── LLM-judge code quality ────────────────────────────────────────────
-        if js.get("code_quality") is None:
-            try:
-                cq = await judge_code_quality(
-                    question_text=question_data.get("text", ""),
-                    code_text=code_text,
-                    stdout=stdout,
-                    judge_model=code_judge_model,
-                )
-                if cq is not None:
-                    js["code_quality"] = cq.model_dump()
-                    js["code_quality"]["weighted_composite"] = cq.weighted_composite
-            except Exception:
-                logger.warning("Code quality judge failed for run_id=%s", trial.get("run_id"))
-
-    # ── Automatic insight metrics ─────────────────────────────────────────────
-    summary_text = insight_data.get("summary_text") or ""
-    key_takeaways = insight_data.get("key_takeaways") or []
-    if summary_text or key_takeaways:
-        try:
-            auto_ins = compute_automatic_insight_metrics(summary_text, key_takeaways, stdout)
-            js["insight_automatic"] = auto_ins.model_dump()
-        except Exception:
-            logger.warning("Insight automatic metrics failed for run_id=%s", trial.get("run_id"))
-
-        # ── LLM-judge insight scores ──────────────────────────────────────────
-        if js.get("insight") is None:
-            try:
-                ins_scores = await judge_insight_batch(
-                    [trial],
-                    insight_judge_model=insight_judge_model,
-                )
-                if ins_scores:
-                    s = ins_scores[0]
-                    js["insight"] = {
-                        "groundedness_rate": s.groundedness_rate,
-                        "caveat_mentioned": s.caveat_mentioned,
-                        "justification": s.justification,
-                        "takeaway_scores": [t.model_dump() for t in s.takeaway_scores],
-                    }
-            except Exception:
-                logger.warning("Insight judge failed for run_id=%s", trial.get("run_id"))
-
+    js = out.get("judge_scores") or {}
     out["judge_scores"] = js
+
+    attempts = trial.get("attempts", [])
+    succeeded_attempts = [a for a in attempts if a.get("succeeded")]
+    best = succeeded_attempts[-1] if succeeded_attempts else None
+
+    if not best:
+        js["skipped"] = "no_successful_execution"
+        return out
+
+    async with sem:
+        code_text = best.get("code", "")
+        stdout = best.get("stdout", "")
+        qtext = trial.get("question", {}).get("text", "")
+        
+        # Code
+        if "code_static" not in js:
+            js["code_static"] = compute_static_signals(code_text).model_dump()
+
+        if "code_quality" not in js:
+            try:
+                cq = await judge_code_quality(qtext, code_text, stdout, judge_model=code_judge_model)
+                if cq:
+                    js["code_quality"] = cq.model_dump()
+            except Exception as e:
+                js["error_code"] = str(e)
+                
+        if do_reproducibility and "reproducibility" not in js:
+            # mock for now since check_reproducibility needs dataset_path etc.
+            try:
+                js["reproducibility"] = await check_reproducibility(code_text, trial.get("meta", {}).get("dataset_path", ""), trial["run_id"])
+            except Exception:
+                pass
+
+        # Insight
+        insight = trial.get("insight", {})
+        summary = insight.get("summary_text", "")
+        takeaways = insight.get("key_takeaways", [])
+        
+        if "insight_automatic" not in js:
+            js["insight_automatic"] = compute_automatic_insight_metrics(summary, takeaways, stdout).model_dump()
+            
+        if "insight" not in js:
+            try:
+                # Add profile null stats for insight judge
+                if "profile" not in trial:
+                    trial["profile"] = {"null_stats": []} # Fallback
+                ins = await judge_insight_batch([trial], insight_judge_model=insight_judge_model)
+                if ins:
+                    js["insight"] = {
+                        "groundedness_rate": ins[0].groundedness_rate,
+                        "caveat_mentioned": ins[0].caveat_mentioned,
+                        "takeaway_scores": [s.model_dump() for s in ins[0].takeaway_scores],
+                        "justification": ins[0].justification,
+                    }
+            except Exception as e:
+                js["error_insight"] = str(e)
+
     return out
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# I/O helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _load_already_judged(output_path: Path) -> dict[str, dict]:
-    """Load already-judged records keyed by run_id to support idempotency."""
-    scored: dict[str, dict] = {}
-    if not output_path.exists():
-        return scored
-    with open(output_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    rec = json.loads(line)
-                    if _already_scored(rec):
-                        scored[rec["run_id"]] = rec
-                except Exception:
-                    pass
-    return scored
-
-
 async def _main(args: argparse.Namespace) -> None:
-    from app.services.telemetry import iter_trials
+    logs_dir = Path(settings.logs_dir)
+    in_batches = logs_dir / "rq_batches.jsonl"
+    out_batches = logs_dir / "rq_batches_judged.jsonl"
+    in_trials = logs_dir / "trials.jsonl"
+    out_trials = logs_dir / "trials_judged.jsonl"
 
-    input_path = Path(args.input)
-    output_path = Path(args.output)
+    if args.force:
+        if out_batches.exists(): out_batches.unlink()
+        if out_trials.exists(): out_trials.unlink()
 
-    if not input_path.exists():
-        raise SystemExit(f"Input file not found: {input_path}")
+    rq_model = getattr(settings, "rq_judge_model", settings.insight_writer_model)
+    code_model = getattr(settings, "code_judge_model", settings.insight_writer_model)
+    ins_model = getattr(settings, "insight_judge_model", settings.insight_writer_model)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    gen_model = settings.question_generator_model
+    if not args.allow_same_model:
+        if rq_model == gen_model or code_model == gen_model or ins_model == gen_model:
+            raise SystemExit("Error: Judge model is same as generator. Pass --allow-same-model to override.")
 
-    # Load trials
-    trials = list(iter_trials(input_path))
-    if not trials:
-        logger.warning("No trials found in %s — nothing to do.", input_path)
-        return
+    sem = asyncio.Semaphore(args.concurrency)
+    
+    # 1. Batches
+    batches = _read_jsonl(in_batches)
+    judged_batches = _read_jsonl(out_batches)
+    judged_batch_ids = {b["batch_id"]: b for b in judged_batches if "judge" in b and "error" not in b["judge"]}
+    
+    tasks = []
+    for b in batches:
+        if b["batch_id"] in judged_batch_ids:
+            b_judged = judged_batch_ids[b["batch_id"]]
+        else:
+            tasks.append(_judge_batch_record(b, rq_model, sem))
+    
+    if tasks:
+        logger.info(f"Judging {len(tasks)} batches...")
+        results = []
+        for t in tasks:
+            res = await t
+            results.append(res)
+            if args.sleep > 0: await asyncio.sleep(args.sleep)
+            
+        for b in batches:
+            for r in results:
+                if b["batch_id"] == r["batch_id"]:
+                    b.update(r)
+    _write_jsonl(out_batches, batches)
+    
+    # 2. Trials
+    trials = _read_jsonl(in_trials)
+    judged_trials = _read_jsonl(out_trials)
+    judged_trial_ids = {t["run_id"]: t for t in judged_trials if "skipped" in t.get("judge_scores", {}) or ("insight" in t.get("judge_scores", {}) and "error_insight" not in t.get("judge_scores", {}))}
+    
+    tasks = []
+    for t in trials:
+        if t["run_id"] in judged_trial_ids:
+            continue
+        tasks.append(_judge_trial_record(t, code_model, ins_model, sem, args.reproducibility))
+        
+    if tasks:
+        logger.info(f"Judging {len(tasks)} trials...")
+        results = []
+        for t in tasks:
+            res = await t
+            results.append(res)
+            if args.sleep > 0: await asyncio.sleep(args.sleep)
+            
+        for t in trials:
+            for r in results:
+                if t["run_id"] == r["run_id"]:
+                    t.update(r)
+    _write_jsonl(out_trials, trials)
 
-    # Load any previously scored records (idempotency); --force bypasses the cache.
-    already_judged = {} if args.force else _load_already_judged(output_path)
-    logger.info(
-        "Loaded %d trials from input; %d already fully scored in output%s.",
-        len(trials), len(already_judged),
-        " (ignored — --force active)" if args.force else "",
-    )
+    # 3. Human sample
+    if args.human_sample > 0:
+        sample = random.sample(trials, min(args.human_sample, len(trials)))
+        import csv
+        with open("judge_human_sample.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["run_id", "question", "code", "insight", "human_score"])
+            for t in sample:
+                w.writerow([t.get("run_id"), t.get("question", {}).get("text"), "", t.get("insight", {}).get("summary_text"), ""])
 
-    # Score
-    scored_records: list[dict] = []
-    to_score = [(i, t) for i, t in enumerate(trials) if t.get("run_id") not in already_judged]
-
-    # --limit: cap how many unscored trials we process this run.
-    if args.limit is not None and args.limit > 0:
-        logger.info("--limit %d: will score at most %d of %d unscored trial(s).",
-                    args.limit, min(args.limit, len(to_score)), len(to_score))
-        to_score = to_score[: args.limit]
-
-    progress = _try_tqdm(to_score, total=len(to_score), desc="Judging trials")
-
-    for i, trial in progress:
-        run_id = trial.get("run_id", f"trial-{i}")
-        logger.info("[%d/%d] scoring run_id=%s", i + 1, len(trials), run_id)
-        try:
-            judged = await _score_trial(
-                trial,
-                rq_judge_model=args.rq_judge_model or None,
-                code_judge_model=args.code_judge_model or None,
-                insight_judge_model=args.insight_judge_model or None,
-            )
-        except Exception:
-            logger.exception("Scoring crashed for run_id=%s — copying as-is", run_id)
-            judged = trial
-        scored_records.append(judged)
-
-    # Merge with already-judged and write.
-    # When --force is active, already_judged is empty so all records come from scored_records;
-    # unprocessed trials (beyond --limit) are re-emitted without judge_scores.
-    unprocessed = [
-        t for i, t in [(i, t) for i, t in enumerate(trials) if t.get("run_id") not in already_judged]
-        if (i, t) not in to_score  # trials skipped due to --limit
-    ]
-    all_records: list[dict] = list(already_judged.values()) + scored_records + unprocessed
-    with open(output_path, "w", encoding="utf-8") as f:
-        for rec in all_records:
-            f.write(json.dumps(rec, default=str) + "\n")
-
-    newly_judged = sum(1 for r in scored_records if _already_scored(r))
-    logger.info(
-        "Done. %d/%d newly scored; output → %s",
-        newly_judged, len(to_score), output_path,
-    )
+    logger.info("Scoring complete.")
 
 
 def main() -> None:
-    from app.config import settings as _s
-
-    parser = argparse.ArgumentParser(
-        description="Offline batch judge: fills judge_scores in trials_judged.jsonl."
-    )
-    parser.add_argument(
-        "--input",
-        default="../data/logs/trials.jsonl",
-        help="Path to the input trials.jsonl file (default: ../data/logs/trials.jsonl).",
-    )
-    parser.add_argument(
-        "--output",
-        default="../data/logs/trials_judged.jsonl",
-        help="Path to write the judged output (default: ../data/logs/trials_judged.jsonl).",
-    )
-    parser.add_argument(
-        "--rq-judge-model",
-        default=_s.rq_judge_model,
-        help=f"Model spec for RQ judge (default: {_s.rq_judge_model}).",
-    )
-    parser.add_argument(
-        "--code-judge-model",
-        default=_s.code_judge_model,
-        help=f"Model spec for code-quality judge (default: {_s.code_judge_model}).",
-    )
-    parser.add_argument(
-        "--insight-judge-model",
-        default=_s.insight_judge_model,
-        help=f"Model spec for insight judge (default: {_s.insight_judge_model}).",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Stop after scoring N unscored trials (useful for smoke-testing; default: no limit).",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Ignore the already-judged cache and re-score every trial from scratch.",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--sleep", type=float, default=0.0)
+    parser.add_argument("--allow-same-model", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--reproducibility", action="store_true")
+    parser.add_argument("--human-sample", type=int, default=0)
     args = parser.parse_args()
-
     asyncio.run(_main(args))
-
 
 if __name__ == "__main__":
     main()
