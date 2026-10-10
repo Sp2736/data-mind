@@ -118,6 +118,11 @@ async def _execute_run(run_id: str) -> None:
         )
         profile = profile_result.scalar_one()
 
+        run.status = "running"
+        run.started_at = datetime.now(timezone.utc)
+        await db.commit()
+        await job_bus.publish(dataset.id, {"type": "run_update", "run_id": run_id, "status": "running"})
+
         similar_past_insights = []
         if rq.category != "system_profile":
             try:
@@ -128,11 +133,6 @@ async def _execute_run(run_id: str) -> None:
                 )
             except Exception:
                 logger.exception("RAG retrieval failed for run %s, continuing without it", run_id)
-
-        run.status = "running"
-        run.started_at = datetime.now(timezone.utc)
-        await db.commit()
-        await job_bus.publish(dataset.id, {"type": "run_update", "run_id": run_id, "status": "running"})
 
         initial_state: AnalysisState = {
             "dataset_id": dataset.id,

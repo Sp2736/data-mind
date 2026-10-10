@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from app.deps import get_current_user
 from app.schemas.pipeline import ResearchQuestionOut, GenerateQuestionsRequest
 from app.agents.nodes.question_generator import generate_research_questions
 from app.agents.nodes.rq_quality_scorer import score_research_questions, filter_questions
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/datasets", tags=["research-questions"])
@@ -51,8 +53,11 @@ async def generate_questions(
         try:
             from app.rag.retriever import retrieve_similar_insights
 
+            # Pass exclude_dataset_id so a dataset cannot retrieve its own past insights (T06).
             similar_past_insights = await retrieve_similar_insights(
-                schema_summary=profile.schema_summary, k=5
+                schema_summary=profile.schema_summary,
+                k=settings.rag_k,
+                exclude_dataset_id=dataset_id,
             )
         except Exception:
             logger.exception("RAG retrieval failed, continuing without it")
@@ -65,9 +70,11 @@ async def generate_questions(
         similar_past_insights=similar_past_insights,
     )
 
-    # --- Quality scoring & filtering ---
+    # Quality scoring & filtering
+    scores = []
+    scorer_metrics = {}
     try:
-        scores = await score_research_questions(batch.questions, profile.schema_summary)
+        scores, scorer_metrics = await score_research_questions(batch.questions, profile.schema_summary)
         passing = filter_questions(batch.questions, scores)
     except Exception:
         logger.exception("Quality scoring failed — using all generated questions")
@@ -76,6 +83,31 @@ async def generate_questions(
             (q, RQScore(index=i, score=3, label="adequate", reason="Scoring unavailable"))
             for i, q in enumerate(batch.questions)
         ]
+
+    # Record RQ batch telemetry (T07) — best-effort
+    try:
+        import uuid
+        from app.services.telemetry import record_rq_batch
+        kept_indices = [i for i, (q, _) in enumerate(passing)
+                        if any(q.question_text == bq.question_text for bq in batch.questions)]
+        batch_record = {
+            "batch_id": f"app-{dataset_id}-{uuid.uuid4().hex[:8]}",
+            "source": "app",
+            "dataset_id": dataset_id,
+            "arm": "rag" if body.use_rag else "baseline",
+            "rep": 0,
+            "use_rag": body.use_rag,
+            "retrieved": similar_past_insights,
+            "questions_raw": [q.model_dump() for q in batch.questions],
+            "scorer": [s.model_dump() for s in scores],
+            "kept_indices": kept_indices,
+            "gen_metrics": _metrics,
+            "scorer_metrics": scorer_metrics,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        record_rq_batch(batch_record, source="app")
+    except Exception:
+        logger.exception("RQ batch telemetry recording failed")
 
     # Delete any previously generated questions for this dataset (regeneration)
     existing = await db.execute(
