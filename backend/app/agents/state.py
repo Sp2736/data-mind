@@ -71,13 +71,16 @@ class AnalysisState(TypedDict, total=False):
     total_tokens: int
 
     # --- per-node LLM usage breakdown (§4.3.4) ---
-    # Keys: "question_generator" | "code_generator" | "code_corrector" | "insight_writer"
+    # Keys: "question_generator" | "code_generator" | "code_corrector" | "insight_writer" | "visualization_builder"
     node_llm_calls: dict          # {node_name: call_count}
     node_prompt_tokens: dict      # {node_name: prompt_token_count}
     node_completion_tokens: dict  # {node_name: completion_token_count}
     node_total_tokens: dict       # {node_name: total_token_count}
+    node_llm_latency_ms: dict     # {node_name: latency_ms}  (added T02)
 
     # --- rate-limit resilience (§4.3.4) ---
     # Counts how many tenacity retries were triggered by 429 / rate-limit errors
     # across all LLM calls in this run.
     rate_limit_retry_count: int
+    other_retry_count: int        # non-429 transient retries (added T02)
+    retry_wait_seconds: float     # total tenacity sleep time in seconds (added T02)

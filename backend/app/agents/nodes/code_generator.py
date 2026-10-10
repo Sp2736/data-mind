@@ -1,10 +1,12 @@
 import logging
 import re
+import time
 from pathlib import Path
 
 from app.agents.schemas import GeneratedCodeOutput
 from app.agents.state import AnalysisState, CodeAttempt
-from app.services.llm import get_llm, with_llm_retry, flush_retry_count
+from app.services.llm import get_llm, with_llm_retry
+from app.services.usage import extract_usage, apply_usage
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -41,14 +43,6 @@ def _get_content_text(content) -> str:
     return str(content)
 
 
-def _get_usage(usage_obj, key: str, default: int = 0) -> int:
-    if usage_obj is None:
-        return default
-    if isinstance(usage_obj, dict):
-        return usage_obj.get(key, default)
-    return getattr(usage_obj, key, default)
-
-
 async def code_generator(state: AnalysisState) -> AnalysisState:
     user_payload = {
         "question_text": state["question_text"],
@@ -73,7 +67,10 @@ async def code_generator(state: AnalysisState) -> AnalysisState:
     attempt_number = state.get("attempts", 0) + 1
     code_text: str | None = None
     approach_summary = ""
-    usage = None
+    raw_obj = None
+    llm_calls = 0
+
+    t0 = time.monotonic()
 
     # ── Strategy 1: structured output ────────────────────────────────────────
     try:
@@ -88,7 +85,8 @@ async def code_generator(state: AnalysisState) -> AnalysisState:
         result = await _invoke_structured()
         parsed: GeneratedCodeOutput | None = result.get("parsed")
         raw = result.get("raw")
-        usage = getattr(raw, "usage_metadata", None)
+        raw_obj = raw
+        llm_calls += 1
 
         if parsed is not None and parsed.code:
             code_text = parsed.code.strip()
@@ -123,7 +121,8 @@ async def code_generator(state: AnalysisState) -> AnalysisState:
                 return await get_llm(settings.code_generator_model).ainvoke(plain_messages)
 
             plain_result = await _invoke_plain()
-            usage = getattr(plain_result, "usage_metadata", usage)
+            raw_obj = plain_result
+            llm_calls += 1
             raw_content = _get_content_text(getattr(plain_result, "content", ""))
             code_text = _extract_code_fallback(raw_content)
             if code_text:
@@ -143,32 +142,17 @@ async def code_generator(state: AnalysisState) -> AnalysisState:
             "Both structured and plain LLM calls returned no usable Python. Check server logs."
         )
 
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
     code_history = list(state.get("code_history", []))
     code_history.append(CodeAttempt(attempt_number=attempt_number, code_text=code_text, file_path=""))
 
     # ── Per-node usage accumulation (§4.3.4) ─────────────────────────────────
-    _NODE = "code_generator"
-    node_calls = dict(state.get("node_llm_calls", {}))
-    node_calls[_NODE] = node_calls.get(_NODE, 0) + 1
-    node_pt = dict(state.get("node_prompt_tokens", {}))
-    node_pt[_NODE] = node_pt.get(_NODE, 0) + _get_usage(usage, "input_tokens")
-    node_ct = dict(state.get("node_completion_tokens", {}))
-    node_ct[_NODE] = node_ct.get(_NODE, 0) + _get_usage(usage, "output_tokens")
-    node_tt = dict(state.get("node_total_tokens", {}))
-    node_tt[_NODE] = node_tt.get(_NODE, 0) + _get_usage(usage, "total_tokens")
-    retry_delta = flush_retry_count()
-
+    # apply_usage also calls flush_retry_stats() to capture retries from this node.
+    usage = extract_usage(raw_obj)
     return {
         **state,
         "attempts": attempt_number,
         "code_history": code_history,
-        "llm_call_count": state.get("llm_call_count", 0) + 1,
-        "prompt_tokens": state.get("prompt_tokens", 0) + _get_usage(usage, "input_tokens"),
-        "completion_tokens": state.get("completion_tokens", 0) + _get_usage(usage, "output_tokens"),
-        "total_tokens": state.get("total_tokens", 0) + _get_usage(usage, "total_tokens"),
-        "node_llm_calls": node_calls,
-        "node_prompt_tokens": node_pt,
-        "node_completion_tokens": node_ct,
-        "node_total_tokens": node_tt,
-        "rate_limit_retry_count": state.get("rate_limit_retry_count", 0) + retry_delta,
+        **apply_usage(state, "code_generator", usage, latency_ms=latency_ms, calls=llm_calls),
     }

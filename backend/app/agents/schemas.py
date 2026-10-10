@@ -3,7 +3,9 @@
 Every node MUST call `llm.with_structured_output(SomeModel)` — never parse
 raw text/JSON by hand. This is a hard guardrail from the project plan (§9).
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.agents.vocab import normalize_category, normalize_output_type
 
 
 class ResearchQuestionItem(BaseModel):
@@ -19,6 +21,18 @@ class ResearchQuestionItem(BaseModel):
     target_columns: list[str]
     rationale: str
     expected_output_type: str = Field(description="'statistic' | 'chart' | 'table' | 'model_summary'")
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _norm_category(cls, v: str) -> str:
+        # Never raise — an exception here fails the whole structured-output batch.
+        return normalize_category(v) if isinstance(v, str) else v
+
+    @field_validator("expected_output_type", mode="before")
+    @classmethod
+    def _norm_output_type(cls, v: str) -> str:
+        return normalize_output_type(v) if isinstance(v, str) else v
+
 
 
 class ResearchQuestionBatch(BaseModel):

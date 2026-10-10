@@ -12,12 +12,15 @@ Quality scale:
   1 — Poor: nonsensical, duplicate, or impossible to answer with the data
 """
 import logging
+import time
 from typing import List
 
 from pydantic import BaseModel, Field
 
 from app.agents.schemas import ResearchQuestionItem
-from app.services.llm import get_llm, with_llm_retry
+from app.services.llm import get_llm, with_llm_retry, flush_retry_stats
+from app.services.usage import extract_usage
+from app.services.schema_utils import schema_columns
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -57,14 +60,19 @@ Return a score for EVERY question. Use the question index (0-based) to identify 
 async def score_research_questions(
     questions: List[ResearchQuestionItem],
     schema_summary: list[dict],
-) -> List[RQScore]:
-    """Score all questions and return scores in the same order.
+) -> tuple[List[RQScore], dict]:
+    """Score all questions and return (scores, metrics) tuple (T07).
 
     Does not filter — filtering is done by the caller based on MIN_QUALITY_SCORE.
-    Returns an empty list only if the LLM call completely fails.
+    Returns an empty list and zero metrics only if the LLM call completely fails.
     """
+    empty_metrics = {
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        "llm_call_count": 0, "latency_ms": 0,
+        "rate_limit_retries": 0, "other_retries": 0, "retry_wait_seconds": 0.0,
+    }
     if not questions:
-        return []
+        return [], empty_metrics
 
     llm = get_llm(settings.question_generator_model).with_structured_output(
         RQScoreBatch, include_raw=True
@@ -88,27 +96,42 @@ async def score_research_questions(
             "role": "user",
             "content": str(
                 {
-                    "schema_columns": [c.get("column") for c in schema_summary],  # profiler uses 'column'
+                    "schema_columns": schema_columns(schema_summary),
                     "questions": questions_payload,
                 }
             ),
         },
     ]
 
+    t0 = time.monotonic()
     try:
         @with_llm_retry
         async def _invoke():
             return await llm.ainvoke(messages)
 
         result = await _invoke()
+        latency_ms = int((time.monotonic() - t0) * 1000)
         parsed: RQScoreBatch | None = result["parsed"]
+        raw = result.get("raw")
+        usage = extract_usage(raw)
+        rs = flush_retry_stats()
+        metrics = {
+            "prompt_tokens": usage["prompt_tokens"],
+            "completion_tokens": usage["completion_tokens"],
+            "total_tokens": usage["total_tokens"],
+            "llm_call_count": 1,
+            "latency_ms": latency_ms,
+            "rate_limit_retries": rs.rate_limit_retries,
+            "other_retries": rs.other_retries,
+            "retry_wait_seconds": rs.wait_seconds,
+        }
         if parsed is None:
             logger.warning("rq_quality_scorer: structured parse failed, skipping filter")
-            return []
-        return parsed.scores
+            return [], metrics
+        return parsed.scores, metrics
     except Exception:
         logger.exception("rq_quality_scorer: LLM call failed, skipping quality filter")
-        return []
+        return [], empty_metrics
 
 
 def filter_questions(
