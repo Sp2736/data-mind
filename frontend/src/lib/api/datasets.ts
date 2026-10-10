@@ -1,4 +1,5 @@
 import { fetchApi } from "./client";
+import { normalizeRunStatus } from "../categories";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,11 +58,11 @@ export interface ApiDatasetProfile {
 export interface ApiResearchQuestion {
   id: string;
   dataset_id: string;
-  category: "pre-processing" | "eda";
+  category: import("../categories").ResearchCategory | "system_profile";
   question_text: string;
   target_columns: string[];
   rationale: string;
-  expected_output_type: "chart" | "table" | "metric" | "statistic";
+  expected_output_type: "statistic" | "chart" | "table" | "model_summary";
   status: string;
   sort_order: number;
   quality_score: number;
@@ -73,7 +74,7 @@ export interface ApiAnalysisRun {
   id: string;
   dataset_id: string;
   rq_id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: import("../categories").RunStatus;
   attempts: number;
   max_attempts: number;
   error_traceback?: string | null;
@@ -113,24 +114,7 @@ export interface ApiVisualization {
   created_at: string;
 }
 
-export interface ColumnComparison {
-  column: string;
-  data_type: string;
-  original_null_count: number;
-  original_null_pct: number;
-  cleaned_null_count: number | null;
-  cleaned_null_pct: number | null;
-  improved: boolean;
-}
 
-export interface DatasetComparison {
-  dataset_id: string;
-  original: { row_count: number; column_count: number };
-  cleaned: { row_count: number; column_count: number };
-  rows_removed: number;
-  rows_added: number;
-  column_comparison: ColumnComparison[];
-}
 
 // ─── Dataset helpers ──────────────────────────────────────────────────────────
 
@@ -165,16 +149,7 @@ export async function getDatasetProfile(id: string): Promise<ApiDatasetProfile> 
   return fetchApi<ApiDatasetProfile>(`/datasets/${id}/profile`);
 }
 
-/** Get before/after cleaning comparison stats. */
-export async function getDatasetComparison(id: string): Promise<DatasetComparison> {
-  return fetchApi<DatasetComparison>(`/datasets/${id}/comparison`);
-}
 
-/** Returns the URL to download the cleaned dataset CSV. */
-export function getCleanedDatasetUrl(id: string): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-  return `${base}/datasets/${id}/cleaned`;
-}
 
 // ─── System Profile helpers ─────────────────────────────────────────────────────
 
@@ -214,16 +189,18 @@ export async function triggerRuns(
   datasetId: string,
   rqIds: string[]
 ): Promise<ApiAnalysisRun[]> {
-  return fetchApi<ApiAnalysisRun[]>(`/datasets/${datasetId}/runs`, {
+  const runs = await fetchApi<ApiAnalysisRun[]>(`/datasets/${datasetId}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rq_ids: rqIds }),
   });
+  return runs.map(r => ({ ...r, status: normalizeRunStatus(r.status) }));
 }
 
 /** List all runs for a dataset. */
 export async function listRuns(datasetId: string): Promise<ApiAnalysisRun[]> {
-  return fetchApi<ApiAnalysisRun[]>(`/datasets/${datasetId}/runs`);
+  const runs = await fetchApi<ApiAnalysisRun[]>(`/datasets/${datasetId}/runs`);
+  return runs.map(r => ({ ...r, status: normalizeRunStatus(r.status) }));
 }
 
 // ─── Insights helpers ─────────────────────────────────────────────────────────

@@ -55,15 +55,10 @@ function QualityBadge({ score, label }: { score: number; label: string | null })
 
 // Maps whatever category string the LLM stored to one of the two UI groups.
 // These must stay in sync with the valid category values in question_generator_system_prompt.md
-const EDA_CATEGORIES = new Set(["eda", "correlation", "trend", "anomaly", "segmentation", "distribution", "comparison", "statistical", "summary"]);
-const CLEANING_CATEGORIES = new Set(["pre-processing", "preprocessing", "cleaning", "data_cleaning", "data-cleaning", "pre_processing"]);
+import { isCleaning } from "@/lib/categories";
 
-function resolveTabGroup(category: string): "pre-processing" | "eda" {
-  const c = (category ?? "").toLowerCase().trim();
-  if (CLEANING_CATEGORIES.has(c)) return "pre-processing";
-  if (c.includes("clean") || c.includes("preprocess") || c.includes("pre-process")) return "pre-processing";
-  if (EDA_CATEGORIES.has(c)) return "eda";
-  return "eda"; // unknown categories default to EDA so no question is silently lost
+function resolveTabGroup(category: string): "data_cleaning" | "analysis" {
+  return isCleaning(category) ? "data_cleaning" : "analysis";
 }
 
 function getOutputTypeConfig(type: string) {
@@ -102,7 +97,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
   const [dataset, setDataset] = useState<{ id: string; filename: string } | null>(null);
   const [questions, setQuestions] = useState<ApiResearchQuestion[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"all" | "pre-processing" | "eda">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "data_cleaning" | "analysis">("all");
   // Track whether this dataset already has completed/running runs so we can unlock navigation.
   const [hasExistingRuns, setHasExistingRuns] = useState(false);
   const [hasCompletedRuns, setHasCompletedRuns] = useState(false);
@@ -152,7 +147,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
     listRuns(datasetId).then(runs => {
       if (runs.length > 0) {
         setHasExistingRuns(true);
-        const anyDone = runs.some(r => r.status === "completed" || r.status === "succeeded" as string);
+        const anyDone = runs.some(r => r.status === "succeeded");
         setHasCompletedRuns(anyDone);
       }
     }).catch(() => { /* silent — navigation locks are non-critical */ });
@@ -181,8 +176,8 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
     }
   };
 
-  const preprocessingQuestions = questions.filter(q => resolveTabGroup(q.category) === "pre-processing");
-  const edaQuestions = questions.filter(q => resolveTabGroup(q.category) === "eda");
+  const preprocessingQuestions = questions.filter(q => resolveTabGroup(q.category) === "data_cleaning");
+  const edaQuestions = questions.filter(q => resolveTabGroup(q.category) === "analysis");
   const displayedQuestions = questions.filter(q =>
     activeTab === "all" ? true : resolveTabGroup(q.category) === activeTab
   );
@@ -361,14 +356,14 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
               All Questions ({questions.length})
             </button>
             <button
-              onClick={() => setActiveTab("pre-processing")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer ${activeTab === "pre-processing" ? "bg-purple-600 text-white dark:bg-purple-500" : "text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200"}`}
+              onClick={() => setActiveTab("data_cleaning")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer ${activeTab === "data_cleaning" ? "bg-purple-600 text-white dark:bg-purple-500" : "text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200"}`}
             >
               Pre-processing ({preprocessingQuestions.length})
             </button>
             <button
-              onClick={() => setActiveTab("eda")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer ${activeTab === "eda" ? "bg-sky-600 text-white dark:bg-sky-500" : "text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200"}`}
+              onClick={() => setActiveTab("analysis")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer ${activeTab === "analysis" ? "bg-sky-600 text-white dark:bg-sky-500" : "text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200"}`}
             >
               Exploratory Analysis ({edaQuestions.length})
             </button>
@@ -379,7 +374,7 @@ export default function RQSelectionPage({ params }: { params: Promise<{ id: stri
             {displayedQuestions.map((q) => {
               const isSelected = selectedIds.includes(q.id);
               const outputStyle = getOutputTypeConfig(q.expected_output_type);
-              const isPre = resolveTabGroup(q.category) === "pre-processing";
+              const isPre = resolveTabGroup(q.category) === "data_cleaning";
 
               return (
                 <div

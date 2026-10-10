@@ -26,7 +26,7 @@ const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 type RunStatus = ApiAnalysisRun["status"] | "succeeded";
 
 function isSuccess(s: RunStatus) {
-  return s === "completed" || s === "succeeded";
+  return s === "succeeded";
 }
 
 function isTerminal(s: RunStatus) {
@@ -41,7 +41,6 @@ interface EnrichedRun extends Omit<ApiAnalysisRun, "status"> {
 
 function statusIcon(s: RunStatus) {
   switch (s) {
-    case "completed":
     case "succeeded": return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
     case "failed": return <XCircle className="w-3.5 h-3.5 text-rose-500" />;
     case "running": return <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />;
@@ -205,7 +204,7 @@ export default function JobStatusPage({ params }: { params: Promise<{ id: string
           case "run_completed":
             addLog(`[pipeline] [${ts()}] ✓ Run ${run_id?.slice(-6)} completed successfully.`);
             setRuns(prev => prev.map(r =>
-              r.id === run_id ? { ...r, status: "completed" as RunStatus } : r
+              r.id === run_id ? { ...r, status: "succeeded" as RunStatus } : r
             ));
             // Debounced fetch — confirms isPipelineFinished from API once all
             // in-flight completions have settled (collapses bursts into one call).
