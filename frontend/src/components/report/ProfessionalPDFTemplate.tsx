@@ -3,7 +3,8 @@
 import React, { forwardRef } from "react";
 import { ApiDataset, ApiDatasetProfile, ApiReport, ApiInsight, ApiResearchQuestion, ApiVisualization } from "@/lib/api/datasets";
 import { InsightVisualRenderer } from "@/components/charts/InsightChart";
-
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 interface InsightBundle {
   insight: ApiInsight;
   question?: ApiResearchQuestion;
@@ -76,9 +77,9 @@ export const ProfessionalPDFTemplate = forwardRef<HTMLDivElement, ProfessionalPD
           {/* OVERVIEW SECTION */}
           <div className="mb-10 avoid-break">
             <h2 className="text-2xl mb-4 text-[var(--accent)]">Executive Summary</h2>
-            <div className="text-base text-[var(--ink)] leading-relaxed">
+            <div className="text-base text-[var(--ink)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-li:my-0.5">
               {report?.overall_summary ? (
-                <p>{report.overall_summary}</p>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.overall_summary}</ReactMarkdown>
               ) : (
                 <p>The autonomous analytics pipeline successfully profiled and executed statistical analyses across the ingested schema, surfacing key distributions, correlation dynamics, and actionable segmentations.</p>
               )}
@@ -150,8 +151,8 @@ export const ProfessionalPDFTemplate = forwardRef<HTMLDivElement, ProfessionalPD
                   {idx + 1}. {bundle.question?.question_text ?? `Finding ${bundle.insight.id.slice(-6)}`}
                 </h3>
                 
-                <div className="text-[15px] mb-6 leading-relaxed">
-                  {bundle.insight.summary_text}
+                <div className="text-[15px] mb-6 leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-li:my-0.5">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{bundle.insight.summary_text}</ReactMarkdown>
                 </div>
                 
                 {bundle.insight.key_takeaways && bundle.insight.key_takeaways.length > 0 && (
@@ -160,7 +161,9 @@ export const ProfessionalPDFTemplate = forwardRef<HTMLDivElement, ProfessionalPD
                     <ul className="list-disc list-inside space-y-1">
                       {bundle.insight.key_takeaways.map((k, i) => (
                         <li key={i} className="text-sm leading-relaxed">
-                          {k}
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: ({node: _node, ...props}) => <span {...props} /> }}>
+                            {k}
+                          </ReactMarkdown>
                         </li>
                       ))}
                     </ul>
