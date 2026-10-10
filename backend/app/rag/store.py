@@ -18,28 +18,35 @@ from app.config import settings
 _COLLECTION_NAME = "datamind_insights"
 
 
+import threading
+
+_client_lock = threading.RLock()
+
 @functools.lru_cache(maxsize=1)
 def _get_client() -> chromadb.ClientAPI:
-    return chromadb.PersistentClient(path=settings.rag_persist_dir)
+    with _client_lock:
+        return chromadb.PersistentClient(path=settings.rag_persist_dir)
 
 
 @functools.lru_cache(maxsize=1)
 def _get_embedding_fn():
-    # all-MiniLM-L6-v2: ~80MB, CPU-friendly, no API key, no network at
-    # query time (downloaded once on first run and cached locally).
-    return embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=settings.rag_embedding_model
-    )
+    with _client_lock:
+        # all-MiniLM-L6-v2: ~80MB, CPU-friendly, no API key, no network at
+        # query time (downloaded once on first run and cached locally).
+        return embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=settings.rag_embedding_model
+        )
 
 
 @functools.lru_cache(maxsize=1)
 def _get_collection():
-    client = _get_client()
-    return client.get_or_create_collection(
-        name=_COLLECTION_NAME,
-        embedding_function=_get_embedding_fn(),
-        metadata={"hnsw:space": "cosine"},
-    )
+    with _client_lock:
+        client = _get_client()
+        return client.get_or_create_collection(
+            name=_COLLECTION_NAME,
+            embedding_function=_get_embedding_fn(),
+            metadata={"hnsw:space": "cosine"},
+        )
 
 
 def get_collection():
