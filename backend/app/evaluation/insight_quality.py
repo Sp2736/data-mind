@@ -46,25 +46,34 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Matches integers and decimals (possibly with commas as thousands separators).
-_NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?")
+_NUM_RE = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?%?")
 
 
-def _parse_numbers(text: str) -> list[float]:
-    """Extract all numeric values from free text."""
-    nums = []
-    for raw in _NUMBER_RE.findall(text):
+def parse_numbers(text: str) -> list[tuple[float, int, bool]]:
+    out = []
+    for m in _NUM_RE.finditer(text or ""):
+        raw = m.group(0)
+        pct = raw.endswith("%")
+        s = raw.rstrip("%").replace(",", "")
         try:
-            nums.append(float(raw.replace(",", "")))
+            val = float(s)
         except ValueError:
-            pass
-    return nums
+            continue
+        mantissa = s.lower().split("e")[0]
+        decimals = len(mantissa.split(".")[1]) if "." in mantissa else 0
+        out.append((val, decimals, pct))
+    return out
 
 
-def _numbers_close(a: float, b: float, rel_tol: float = 0.01) -> bool:
-    """True if |a - b| / max(|b|, 1) <= rel_tol (1 % default)."""
-    denom = max(abs(b), 1.0)
-    return abs(a - b) / denom <= rel_tol
+def is_grounded(val: float, decimals: int, pct: bool, refs: list[float]) -> bool:
+    for r in refs:
+        cands = [r, r * 100] if pct else [r, r / 100]
+        for c in cands:
+            if abs(c - val) <= 0.5 * 10 ** (-decimals) + 1e-9:
+                return True
+            if abs(c - val) <= 0.005 * max(abs(c), 1e-12):
+                return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,11 +134,13 @@ class AutomaticInsightMetrics(BaseModel):
     """Deterministic insight quality metrics derived from stdout + text alone."""
 
     faithfulness_rate: float = Field(
-        description=(
-            "Fraction of numbers cited in summary_text / key_takeaways that "
-            "appear in stdout (exact match or within 1 % relative tolerance). "
-            "1.0 = all numbers grounded; 0.0 = none; null if no numbers cited."
-        )
+        description="Fraction of numbers grounded in stdout. 1.0 = all grounded, null if none cited."
+    )
+    faithfulness_rate_with_profile: float = Field(
+        description="Fraction of numbers grounded in stdout or profile."
+    )
+    faithfulness_rate_nontrivial: float = Field(
+        description="Fraction of non-trivial numbers grounded."
     )
     total_numbers_cited: int = Field(description="Count of numeric values in summary + takeaways.")
     grounded_numbers: int = Field(description="Subset of cited numbers found in stdout.")
@@ -143,34 +154,53 @@ def compute_automatic_insight_metrics(
     summary_text: str,
     key_takeaways: list[str],
     stdout: str,
+    profile_text: str = "",
 ) -> AutomaticInsightMetrics:
-    """Deterministic metrics computable with zero LLM calls.
-
-    Args:
-        summary_text:  The `InsightOutput.summary_text` produced by insight_writer.
-        key_takeaways: The `InsightOutput.key_takeaways` list.
-        stdout:        The captured stdout of the executed code (execution_history
-                       last succeeded attempt's stdout, or "" if failed).
-    """
-    # ── Numerical faithfulness ────────────────────────────────────────────────
     insight_text = " ".join([summary_text] + key_takeaways)
-    cited_numbers = _parse_numbers(insight_text)
-    stdout_numbers = _parse_numbers(stdout)
+    cited = parse_numbers(insight_text)
+    
+    stdout_nums = [v for v, _, _ in parse_numbers(stdout)]
+    profile_nums = [v for v, _, _ in parse_numbers(profile_text)]
+    both_nums = stdout_nums + profile_nums
 
     grounded = 0
-    for cited in cited_numbers:
-        if any(_numbers_close(cited, ref) for ref in stdout_numbers):
+    grounded_with_profile = 0
+    nontrivial_cited = 0
+    nontrivial_grounded = 0
+
+    for val, decimals, pct in cited:
+        # Check nontrivial
+        is_trivial = False
+        if decimals == 0 and not pct and abs(val) <= 10:
+            is_trivial = True
+        elif decimals == 0 and not pct and 1900 <= val <= 2100:
+            is_trivial = True
+            
+        is_g_stdout = is_grounded(val, decimals, pct, stdout_nums)
+        is_g_both = is_grounded(val, decimals, pct, both_nums)
+        
+        if is_g_stdout:
             grounded += 1
+        if is_g_both:
+            grounded_with_profile += 1
+            
+        if not is_trivial:
+            nontrivial_cited += 1
+            if is_g_stdout:
+                nontrivial_grounded += 1
 
-    total_cited = len(cited_numbers)
-    faithfulness = (grounded / total_cited) if total_cited > 0 else 1.0  # vacuously faithful
+    total_cited = len(cited)
+    f_rate = (grounded / total_cited) if total_cited > 0 else 1.0
+    f_rate_prof = (grounded_with_profile / total_cited) if total_cited > 0 else 1.0
+    f_rate_nontrivial = (nontrivial_grounded / nontrivial_cited) if nontrivial_cited > 0 else 1.0
 
-    # ── Readability ───────────────────────────────────────────────────────────
     fk = flesch_kincaid_grade(summary_text) if summary_text.strip() else 0.0
     wc = _word_count(summary_text)
 
     return AutomaticInsightMetrics(
-        faithfulness_rate=round(faithfulness, 4),
+        faithfulness_rate=round(f_rate, 4),
+        faithfulness_rate_with_profile=round(f_rate_prof, 4),
+        faithfulness_rate_nontrivial=round(f_rate_nontrivial, 4),
         total_numbers_cited=total_cited,
         grounded_numbers=grounded,
         flesch_kincaid_grade=fk,
@@ -281,7 +311,8 @@ async def judge_insight_batch(
             stdout = attempts[-1].get("stdout", "")
 
         # Profile null stats (may not be present in older trial records).
-        profile_null_stats = trial.get("profile_null_stats") or []
+        profile_dict = trial.get("profile") or {}
+        profile_null_stats = profile_dict.get("null_stats") or []
 
         if not summary_text and not key_takeaways:
             results.append(

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.schemas import ResearchQuestionItem
 from app.services.llm import get_llm, with_llm_retry
+from app.services.schema_utils import schema_columns
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -52,14 +53,107 @@ def _get_embedder():
 # B.1 automatic / deterministic metrics — no LLM call, no cost
 # ─────────────────────────────────────────────────────────────────────────
 
-EDA_CATEGORIES = ["data_quality", "distribution", "relationship", "trend", "segmentation"]
+# Import canonical categories from vocab (T03).
+from app.agents.vocab import CATEGORIES as _VOCAB_CATEGORIES
+from app.services.schema_utils import col_name, null_stats as _null_stats
+
+EDA_CATEGORIES = list(_VOCAB_CATEGORIES)  # canonical: data_cleaning, distribution, …
 
 _DUPLICATE_COSINE_THRESHOLD = 0.9
+
+
+def infer_applicable_categories(
+    schema_summary: list[dict],
+    stats_summary: list[dict] | None = None,
+    sample_rows: list[dict] | None = None,
+) -> list[str]:
+    """Infer which EDA_CATEGORIES can reasonably apply to this dataset's profile.
+
+    Rules (per T03):
+    - ``data_cleaning``  if any null_count > 0 OR any numeric stat where max > 5 * p75.
+    - ``distribution``   if ≥1 numeric column.
+    - ``anomaly``        if ≥1 numeric column.
+    - ``correlation``    if ≥2 numeric columns.
+    - ``trend``          if a datetime-like column exists (dtype contains 'datetime',
+                          or name matches date|time|year|month|day, or a sample value
+                          parses with pd.to_datetime).
+    - ``segmentation``   if ≥1 low-cardinality categorical (object/str/category with
+                          unique_count <= 50) AND ≥1 numeric column.
+    """
+    import re
+
+    applicable: list[str] = []
+
+    numeric_columns = [
+        c for c in schema_summary
+        if str(c.get("data_type", c.get("dtype", ""))).lower() in
+        ("int64", "float64", "int32", "float32", "int", "float", "number", "numeric")
+    ]
+    categorical_low_card = [
+        c for c in schema_summary
+        if str(c.get("data_type", c.get("dtype", ""))).lower() in ("object", "str", "string", "category")
+        and (c.get("unique_count") or float("inf")) <= 50
+    ]
+
+    # data_cleaning: any nulls or outlier signal
+    has_nulls = any(c.get("null_count", 0) > 0 for c in schema_summary)
+    has_outlier = False
+    if stats_summary:
+        for s in stats_summary:
+            p75 = s.get("75%", s.get("q75", None))
+            max_v = s.get("max", None)
+            if p75 is not None and max_v is not None:
+                try:
+                    if float(max_v) > 5 * float(p75):
+                        has_outlier = True
+                        break
+                except (TypeError, ValueError):
+                    pass
+    if has_nulls or has_outlier:
+        applicable.append("data_cleaning")
+
+    if numeric_columns:
+        applicable.append("distribution")
+        applicable.append("anomaly")
+    if len(numeric_columns) >= 2:
+        applicable.append("correlation")
+
+    # trend: datetime-like column
+    dt_re = re.compile(r"(?i)date|time|year|month|day")
+    has_trend = False
+    for c in schema_summary:
+        dtype = str(c.get("data_type", c.get("dtype", ""))).lower()
+        cname = col_name(c) or ""
+        if "datetime" in dtype or dt_re.search(cname):
+            has_trend = True
+            break
+    if not has_trend and sample_rows:
+        import pandas as pd  # type: ignore
+        for c in schema_summary:
+            cname = col_name(c) or ""
+            vals = [r.get(cname) for r in sample_rows[:5] if r.get(cname)]
+            if vals:
+                try:
+                    pd.to_datetime(vals)
+                    has_trend = True
+                    break
+                except Exception:
+                    pass
+    if has_trend:
+        applicable.append("trend")
+
+    # segmentation: low-cardinality categorical + at least one numeric
+    if categorical_low_card and numeric_columns:
+        applicable.append("segmentation")
+
+    return applicable
+
 
 
 class AutomaticRQMetrics(BaseModel):
     column_grounding_rate: float = Field(description="valid_questions / total_questions")
     category_coverage: dict[str, bool] = Field(description="Which of EDA_CATEGORIES were produced")
+    category_coverage_rate: float = Field(description="covered_applicable / applicable categories")
     redundancy_rate: float = Field(description="Fraction of question pairs above the duplicate threshold")
     diversity_score: float = Field(description="Mean pairwise embedding cosine distance across the batch")
     total_questions: int
@@ -81,15 +175,26 @@ def compute_automatic_metrics(
     questions: List[ResearchQuestionItem],
     schema_summary: list[dict],
     applicable_categories: list[str] | None = None,
+    stats_summary: list[dict] | None = None,
+    sample_rows: list[dict] | None = None,
 ) -> AutomaticRQMetrics:
     """Deterministic metrics computable with zero LLM calls.
 
-    `applicable_categories` — categories the profile could support (e.g. a
+    ``applicable_categories`` — categories the profile could support (e.g. a
     dataset with no datetime column can't have "trend" held against it).
-    Defaults to all EDA_CATEGORIES if not supplied by the caller.
+    When ``None``, ``infer_applicable_categories`` is called automatically
+    using ``schema_summary``, ``stats_summary``, and ``sample_rows``.
+
+    Note: an empty ``target_columns`` list is treated as ungrounded — the
+    prompt requires at least one column target for a question to be specific.
     """
-    valid_columns = {c.get("column_name") or c.get("column") for c in schema_summary}
-    applicable_categories = applicable_categories or EDA_CATEGORIES
+    from app.services.schema_utils import schema_columns
+
+    valid_columns = set(schema_columns(schema_summary))
+    if applicable_categories is None:
+        applicable_categories = infer_applicable_categories(schema_summary, stats_summary, sample_rows)
+    if not applicable_categories:
+        applicable_categories = EDA_CATEGORIES
 
     total = len(questions)
     grounded = 0
@@ -118,14 +223,20 @@ def compute_automatic_metrics(
         except Exception:
             logger.exception("rq_quality: embedding-based metrics failed, defaulting to 0.0")
 
+    covered_applicable = sum(1 for covered in category_coverage.values() if covered)
+    n_applicable = len(applicable_categories)
+    category_coverage_rate = (covered_applicable / n_applicable) if n_applicable else 0.0
+
     return AutomaticRQMetrics(
         column_grounding_rate=(grounded / total) if total else 0.0,
         category_coverage=category_coverage,
+        category_coverage_rate=category_coverage_rate,
         redundancy_rate=redundancy_rate,
         diversity_score=diversity_score,
         total_questions=total,
         grounded_questions=grounded,
     )
+
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -186,7 +297,7 @@ async def judge_rq_batch(
     llm = get_llm(model_spec).with_structured_output(RQJudgeBatch, include_raw=True)
 
     payload = {
-        "schema_columns": [c.get("column") for c in schema_summary],
+        "schema_columns": schema_columns(schema_summary),
         "stats_summary": stats_summary,
         "correlation_summary": correlation_summary or [],
         "questions": [
