@@ -124,7 +124,7 @@ async def _execute_run(run_id: str) -> None:
         await job_bus.publish(dataset.id, {"type": "run_update", "run_id": run_id, "status": "running"})
 
         similar_past_insights = []
-        if rq.category != "system_profile":
+        if rq.category != "system_profile" and settings.rag_in_app_runs:
             try:
                 from app.rag.retriever import retrieve_similar_insights
 

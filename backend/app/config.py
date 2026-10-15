@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     rag_persist_dir: str = "../data/rag_store"
     rag_embedding_model: str = "all-MiniLM-L6-v2"
     rag_k: int = 5  # default number of similar insights to retrieve (T06)
+    # E-04: set false to skip RAG retrieval in app-path runs (api/runs.py).
+    # Default true = existing behaviour. Set RAG_IN_APP_RUNS=false in .env
+    # when building the baseline corpus so insights are not influenced by
+    # each other during app runs.
+    rag_in_app_runs: bool = True
 
     # Chart quality (T09)
     chart_min_grounding: float = 0.6  # drop charts with grounding rate below this
