@@ -262,7 +262,7 @@ async def _execute_run(run_id: str) -> None:
         await db.commit()
 
         # Feed the new insight into the RAG index for future runs (best-effort).
-        if insight_row is not None:
+        if insight_row is not None and settings.rag_in_app_runs:
             try:
                 from app.rag.indexer import index_insight
 

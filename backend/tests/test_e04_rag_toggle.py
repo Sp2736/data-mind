@@ -29,3 +29,19 @@ def test_rag_in_app_runs_gating(monkeypatch, toggle_val, should_call):
     else:
         assert not mock_retriever.called
         assert similar_past_insights == []
+
+
+@pytest.mark.parametrize("toggle_val,body_use_rag,expected_effective", [
+    (False, True, False),
+    (False, False, False),
+    (True, True, True),
+    (True, False, False),
+])
+def test_rq_generation_rag_gating(monkeypatch, toggle_val, body_use_rag, expected_effective):
+    monkeypatch.setattr(settings, "rag_in_app_runs", toggle_val)
+    effective_use_rag = body_use_rag and settings.rag_in_app_runs
+    assert effective_use_rag == expected_effective
+    arm = "rag" if effective_use_rag else "baseline"
+    if not toggle_val:
+        assert arm == "baseline"
+

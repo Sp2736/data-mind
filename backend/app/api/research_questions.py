@@ -49,7 +49,8 @@ async def generate_questions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset profile not found")
 
     similar_past_insights = []
-    if body.use_rag:
+    effective_use_rag = body.use_rag and settings.rag_in_app_runs
+    if effective_use_rag:
         try:
             from app.rag.retriever import retrieve_similar_insights
 
@@ -94,9 +95,9 @@ async def generate_questions(
             "batch_id": f"app-{dataset_id}-{uuid.uuid4().hex[:8]}",
             "source": "app",
             "dataset_id": dataset_id,
-            "arm": "rag" if body.use_rag else "baseline",
+            "arm": "rag" if effective_use_rag else "baseline",
             "rep": 0,
-            "use_rag": body.use_rag,
+            "use_rag": effective_use_rag,
             "retrieved": similar_past_insights,
             "questions_raw": [q.model_dump() for q in batch.questions],
             "scorer": [s.model_dump() for s in scores],
