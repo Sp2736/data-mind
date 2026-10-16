@@ -171,3 +171,15 @@ async def judge_code_quality(
     except Exception:
         logger.exception("code_quality: judge LLM call failed")
         return None
+
+
+async def check_reproducibility(
+    code_text: str,
+    dataset_path: str,
+    run_id: str,
+) -> dict:
+    """Check if code re-executes deterministically (placeholder / mock)."""
+    return {
+        "status": "skipped",
+        "reason": "Reproducibility re-execution requires containerized sandbox environment",
+    }
