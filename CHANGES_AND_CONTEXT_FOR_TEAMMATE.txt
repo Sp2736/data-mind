@@ -1,0 +1,249 @@
+================================================================================
+DATAMIND PROJECT: COMPLETE CONTEXT, ARCHITECTURAL CHANGES & REPRODUCIBILITY GUIDE
+================================================================================
+Date: 2026-10-16
+Branch: experiment-prep
+Project: DataMind (LLM-Powered Autonomous Data Analysis with RAG)
+Target Audience: Teammate & AI Agent Assistant
+================================================================================
+
+1. EXECUTIVE SUMMARY & OBJECTIVE
+--------------------------------------------------------------------------------
+This document details every single investigation, architectural fix, script,
+bug fix, and data-engineering decision made during this session. Its purpose is
+to give your teammate and her AI coding assistant 100% complete, unambiguous
+context so that:
+  a) Both machines have identical, synchronized project structures.
+  b) Both teammates understand how the RAG vs. Baseline evaluation data was
+     collected, paired, and fixed.
+  c) The 30 total datasets (15 from Swayam, 15 from teammate) can be exported,
+     merged, judged, and analyzed without collisions, loss, or wasted API quota.
+
+
+2. CORE RESEARCH HYPOTHESIS & PIPELINE WORKFLOW
+--------------------------------------------------------------------------------
+DataMind tests an empirical research hypothesis:
+"Retrieval-Augmented Generation (RAG) using historical analytical patterns from
+similar dataset schemas produces higher quality research questions, more idiomatic
+and executable Python code (higher First-Pass Success Rate / FPSR), fewer sandbox
+retries, and more faithful, grounded insights compared to a zero-shot baseline."
+
+The pipeline runs in two experimental arms for every dataset:
+  - Arm A (RAG): Past analytical patterns retrieved from ChromaDB vector store
+    are injected into the prompt.
+  - Arm B (Baseline): Zero-shot EDA prompts with no vector context retrieved.
+
+Statistical testing:
+For the final paper, evaluation metrics (RQ Grounding/Relevance, Code Correctness,
+Insight Faithfulness) are evaluated pairwise using a Wilcoxon signed-rank test
+across all 30 datasets to establish statistical significance (p < 0.05).
+
+
+3. STEP-BY-STEP RECORD OF ALL CHANGES MADE IN THIS SESSION
+--------------------------------------------------------------------------------
+
+[Step 1: Verification & Disabling of RAG Switches for Baseline Runs]
+- Context: Swayam had already completed RAG-enabled pipeline runs for his datasets.
+  He needed to run the exact same datasets with RAG disabled (the baseline benchmark).
+- Actions Taken:
+  * Inspected backend configuration (`backend/app/config.py` and `backend/.env`).
+  * Confirmed that `RAG_IN_APP_RUNS` in `.env` controls whether the web UI analysis
+    invokes vector retrieval.
+  * Ensured `RAG_IN_APP_RUNS=false` was strictly active so that all subsequent web
+    runs executed as pure baselines without vector contamination.
+  * Verified that ChromaDB vector store had 78 clean, deduplicated vectors (27 stale
+    and duplicate test vectors had been pruned earlier to avoid prompt poisoning).
+
+[Step 2: Safety Backup Before Data Engineering]
+- Context: The user ran 14 datasets through the full pipeline for both RAG and baseline arms.
+  Before running any transformation or evaluation scripts, safety snapshots were taken.
+- Backup Created:
+  * Location: `data/_backups/20261016_184837/`
+  * SQLite DB: `data/_backups/20261016_184837/datamind.db` (2.0 MB, 29 dataset records)
+  * ChromaDB:  `data/_backups/20261016_184837/rag_store/` (1.5 MB, full Chroma directory)
+  * Status: Complete and verified.
+
+[Step 3: Discovery of 3 Critical Architecture & Logging Gaps]
+Upon auditing the collected data in `data/datamind.db` and `data/logs/`, three serious
+architectural mismatches were identified:
+
+  Gap 1: Disconnected Log Paths (E-01)
+  - The evaluation scripts (`judge_trials.py` and `analyze_results.py`) were originally
+    written to read `data/logs/rq_batches.jsonl` and `data/logs/trials.jsonl`.
+  - However, the interactive FastAPI web UI logs to `data/logs/app_rq_batches.jsonl`
+    and `data/logs/app_trials.jsonl`.
+  - Neither `rq_batches.jsonl` nor `trials.jsonl` existed in `data/logs/`, so running
+    the evaluation suite resulted in empty outputs or crashes.
+
+  Gap 2: Missing Arm Pairing Key
+  - In the web UI, each dataset was uploaded twice (once for the RAG run, once for
+    the baseline run).
+  - Each upload generated a distinct, random UUID (e.g. `ds_21ef54bdf19a4ce...` vs
+    `ds_7dd510f3699541d...`).
+  - As a result, the RAG and baseline runs of the same CSV had completely different
+    `dataset_id` values, preventing the paired Wilcoxon statistical test from linking them.
+
+  Gap 3: App-Path Mislabeling of Experiment Arm
+  - In `backend/app/api/datasets.py`, the endpoint `run_analysis()` used a default
+    signature parameter `experiment_arm: str = "baseline"`.
+  - Because the web frontend did not explicitly pass `experiment_arm="rag"` during
+    execution, the trial logger recorded `experiment_arm: "baseline"` for ALL trials,
+    including the RAG trials.
+  - Fortunately, the research question batches in `app_rq_batches.jsonl` correctly
+    recorded `arm: "rag"` vs `arm: "baseline"`.
+
+[Step 4: Creation of the Bridge Script (backend/scripts/prepare_judging.py)]
+To solve Gaps 1, 2, and 3 without modifying or corrupting existing databases or raw logs,
+a bridge script was written: `backend/scripts/prepare_judging.py`.
+
+What `prepare_judging.py` does:
+1. Connects to `datamind.db` in read-only mode (`?mode=ro`) to map each `dataset_id`
+   to its underlying filename (e.g., `athlete_events.csv`, `netflix_titles.csv`).
+2. Reads `app_rq_batches.jsonl` and groups batches by `(filename, arm)`.
+   If multiple runs exist for the same CSV and arm, it deterministically picks the
+   best representative (highest number of questions, ties broken by latest timestamp).
+3. Assigns a deterministic, SHA-256 canonical ID for each distinct filename:
+   `canonical_id = "ds_canonical_" + sha256(filename.lower())[:12]`
+   Now, both the RAG upload and baseline upload of `athlete_events.csv` share the
+   exact same canonical dataset ID, enabling paired statistics downstream.
+4. Corrects Trial Arm Labels: Cross-references each trial's original `dataset_id`
+   with the batch mapping table. If the batch was RAG, the trial's `experiment_arm`
+   is corrected from `"baseline"` to `"rag"`.
+5. Outputs the standardized files expected by `judge_trials.py`:
+   - `data/logs/rq_batches.jsonl` (28 batches: exactly 14 RAG, 14 baseline)
+   - `data/logs/trials.jsonl` (191 trials: 91 RAG, 100 baseline)
+   - `data/logs/dataset_pairing.json` (audit map of filenames -> canonical IDs)
+   - Results: Exactly 14 / 14 datasets fully paired!
+6. Encoded purely in standard ASCII (no unicode box-drawing or em-dashes) to guarantee
+   clean execution across all Windows/Linux/macOS shells.
+
+[Step 5: Fix to backend/experiment/analyze_results.py (E-02)]
+- Problem: `analyze_results.py` had a hardcoded relative path: `logs_dir = Path("../data/logs")`.
+  When run from different directories or custom environments, it broke with FileNotFoundError.
+- Fix: Modified `analyze_results.py` to import `settings.logs_dir` from `app.config`
+  and added an optional CLI argument `--logs-dir` so it can be called cleanly from anywhere.
+
+[Step 6: Creation & Optimization of backend/scripts/sync_data.py]
+- Context: In `data-sharing-instructions.md`, a data-sync tool was proposed for teammates
+  to share work. However, the script did not exist yet.
+- Discovery of the 9.5 GB Duplication Problem:
+  * When testing initial bundling, the script stalled.
+  * Investigation revealed that `data/datasets/raw/` contained 4.7 GB of raw CSVs.
+  * Worse, `data/generated_code/` was **9.5 GIGABYTES** because the Docker/Local sandbox
+    runner copies the dataset CSV into each `attempt_1/data.csv` folder for every run!
+  * 9.55 GB was purely duplicated `data.csv` files inside sandbox run directories.
+  * The actual Python code (`attempt_1.py`) and outputs were only **5.74 MB**.
+- Optimizations Implemented:
+  1. Made raw dataset CSVs optional via `--include-raw` (default: False).
+  2. Filtered out all `*.csv` files when copying `generated_code/` using
+     `shutil.ignore_patterns("*.csv")`.
+  3. Optimized ChromaDB export: Instead of calling `app.rag.store.get_collection()`
+     (which loads HuggingFace SentenceTransformer PyTorch weights and took ~16s),
+     it queries `chromadb.PersistentClient` directly to export vectors, which takes 0.14s.
+- Results:
+  * Bundle size dropped from ~14.2 GB down to **5.88 MB** (`swayam_data.zip`).
+  * Creation time: ~5 seconds.
+  * Safe import with automatic pre-merge backup: Merges SQLite with `INSERT OR IGNORE`,
+    upserts Chroma vectors, copies code files, and deduplicates JSONL logs by UUID.
+
+[Step 7: Bug Fixes in backend/experiment/judge_trials.py]
+- Bug 1 (ImportError):
+  * When running `python -m experiment.judge_trials --allow-same-model`, Python crashed:
+    `ImportError: cannot import name 'check_reproducibility' from 'app.evaluation.code_quality'`.
+  * Root Cause: `judge_trials.py` imported `check_reproducibility`, but it had never been
+    defined in `app/evaluation/code_quality.py`.
+  * Fix: Added `async def check_reproducibility(...)` to `backend/app/evaluation/code_quality.py`.
+- Bug 2 (All-or-Nothing Disk Writes & Lack of Visibility):
+  * Originally, `judge_trials.py` only wrote to `rq_batches_judged.jsonl` and `trials_judged.jsonl`
+    at the very end after all 191 trials finished.
+  * If interrupted by rate limits, network timeout, or user Ctrl+C, all progress was lost.
+  * Fix: Upgraded `judge_trials.py` with:
+    1. Real-time progress logging: `[Batch 1/28] id=... (arm=rag)`, `[Trial 1/191] run_id=...`.
+    2. Incremental disk persistence: Flushes to JSONL immediately after each batch and trial.
+    3. Idempotent resuming: If stopped and restarted, it skips already-judged records and
+       resumes immediately from the remaining items.
+
+[Step 8: Git Commit & Remote Push]
+- Commits created and pushed to branch `experiment-prep` on GitHub (`origin/experiment-prep`):
+  1. Commit `e167de9`:
+     "feat(experiment): add prepare_judging bridge and sync_data scripts, fix analyze_results log path"
+  2. Commit `c8d10f4`:
+     "fix(eval): define check_reproducibility in code_quality to fix judge_trials import"
+  3. Commit `555b041`:
+     "feat(eval): incremental save and progress logging in judge_trials"
+- All changes are live on GitHub repo: `https://github.com/Sp2736/data-mind.git`.
+
+
+4. INSTRUCTIONS FOR THE TEAMMATE & HER AGENT
+--------------------------------------------------------------------------------
+
+Follow these exact steps to synchronize both environments and run the complete evaluation:
+
+Step 1: Pull the latest code on your machine:
+```bash
+git checkout experiment-prep
+git pull origin experiment-prep
+```
+
+Step 2: Export your 15 datasets into a bundle:
+```bash
+cd backend
+venv\Scripts\python scripts/sync_data.py export --out teammate_data.zip
+```
+(On macOS/Linux: `python scripts/sync_data.py export --out teammate_data.zip`)
+This creates a ~5-8 MB bundle containing your SQLite records, Chroma vectors, generated code, and logs.
+
+Step 3: Exchange Bundles:
+- Send your `teammate_data.zip` to Swayam.
+- Download Swayam's `swayam_data.zip` (placed in your `backend/` folder).
+
+Step 4: Import Swayam's data on your machine:
+```bash
+# Optional dry-run check:
+venv\Scripts\python scripts/sync_data.py import --bundle swayam_data.zip --dry-run
+
+# Actual import:
+venv\Scripts\python scripts/sync_data.py import --bundle swayam_data.zip
+```
+This automatically creates a safety backup in `data/_backups/`, merges all 29 of Swayam's
+dataset records into your SQLite database without ID conflicts, upserts his 78 Chroma vectors,
+and merges the trial logs.
+
+Step 5: Run the Bridge Script to pair all 30 datasets:
+```bash
+venv\Scripts\python scripts/prepare_judging.py --force
+```
+This merges both halves, pairs all 30 filenames into shared canonical IDs, corrects all
+RAG trial labels, and prepares `rq_batches.jsonl` and `trials.jsonl`.
+
+Step 6: Run Judging and Analysis:
+```bash
+# 1. Judge all batches and trials (incremental, idempotent):
+venv\Scripts\python -m experiment.judge_trials --allow-same-model
+
+# 2. Compute paired statistical metrics and write results.md:
+venv\Scripts\python -m experiment.analyze_results
+```
+
+
+5. FILE MODIFICATION & CREATION REFERENCE
+--------------------------------------------------------------------------------
+| File Path                               | Status    | Purpose / Description                                         |
+|-----------------------------------------|-----------|---------------------------------------------------------------|
+| `backend/scripts/prepare_judging.py`    | Created   | Bridges app logs to experiment logs; pairs RAG & baseline     |
+|                                         |           | datasets by filename with SHA-256 canonical IDs; fixes arms.  |
+| `backend/scripts/sync_data.py`          | Created   | Bidirectional export/import tool; merges SQLite, ChromaDB,    |
+|                                         |           | code (no sandbox CSVs), and logs into a ~6MB zip bundle.      |
+| `backend/experiment/analyze_results.py` | Modified  | Fixed hardcoded log path; added `settings.logs_dir` & CLI arg.|
+| `backend/experiment/judge_trials.py`    | Modified  | Added incremental saving per trial, live progress logging,   |
+|                                         |           | and idempotent resuming.                                      |
+| `backend/app/evaluation/code_quality.py`| Modified  | Added `check_reproducibility()` to resolve ImportError.      |
+| `data-sharing-instructions.md`          | Cleaned   | Removed extraneous pasted chat notes; restored documentation. |
+| `data/logs/rq_batches.jsonl`            | Generated | Canonical batches input for judge_trials.py (28 batches).     |
+| `data/logs/trials.jsonl`                | Generated | Canonical trials input for judge_trials.py (191 trials).      |
+| `data/logs/dataset_pairing.json`        | Generated | Audit table mapping CSV filenames to canonical dataset IDs.   |
+| `data/_backups/20261016_184837/`        | Created   | Safety backup of datamind.db and Chroma rag_store directory.  |
+| `backend/swayam_data.zip`               | Generated | Export bundle ready to share with teammate (5.88 MB).         |
+================================================================================
+END OF SUMMARY
+================================================================================
