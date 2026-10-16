@@ -184,52 +184,50 @@ async def _main(args: argparse.Namespace) -> None:
     batches = _read_jsonl(in_batches)
     judged_batches = _read_jsonl(out_batches)
     judged_batch_ids = {b["batch_id"]: b for b in judged_batches if "judge" in b and "error" not in b["judge"]}
-    
-    tasks = []
-    for b in batches:
-        if b["batch_id"] in judged_batch_ids:
-            b_judged = judged_batch_ids[b["batch_id"]]
-        else:
-            tasks.append(_judge_batch_record(b, rq_model, sem))
-    
-    if tasks:
-        logger.info(f"Judging {len(tasks)} batches...")
-        results = []
-        for t in tasks:
-            res = await t
-            results.append(res)
-            if args.sleep > 0: await asyncio.sleep(args.sleep)
-            
-        for b in batches:
-            for r in results:
-                if b["batch_id"] == r["batch_id"]:
-                    b.update(r)
-    _write_jsonl(out_batches, batches)
-    
+
+    batches_to_judge = [b for b in batches if b["batch_id"] not in judged_batch_ids]
+    if batches_to_judge:
+        logger.info(f"Judging {len(batches_to_judge)} batches (already judged: {len(judged_batch_ids)})...")
+        for idx, b in enumerate(batches_to_judge, 1):
+            logger.info(f"  [Batch {idx}/{len(batches_to_judge)}] batch_id={b.get('batch_id')} (arm={b.get('arm')})...")
+            res = await _judge_batch_record(b, rq_model, sem)
+            b.update(res)
+            judged_batch_ids[b["batch_id"]] = b
+            for ob in batches:
+                if ob["batch_id"] == b["batch_id"]:
+                    ob.update(b)
+            _write_jsonl(out_batches, batches)
+            if args.sleep > 0:
+                await asyncio.sleep(args.sleep)
+    else:
+        logger.info(f"All {len(batches)} batches already judged.")
+
     # 2. Trials
     trials = _read_jsonl(in_trials)
     judged_trials = _read_jsonl(out_trials)
-    judged_trial_ids = {t["run_id"]: t for t in judged_trials if "skipped" in t.get("judge_scores", {}) or ("insight" in t.get("judge_scores", {}) and "error_insight" not in t.get("judge_scores", {}))}
-    
-    tasks = []
-    for t in trials:
-        if t["run_id"] in judged_trial_ids:
-            continue
-        tasks.append(_judge_trial_record(t, code_model, ins_model, sem, args.reproducibility))
-        
-    if tasks:
-        logger.info(f"Judging {len(tasks)} trials...")
-        results = []
-        for t in tasks:
-            res = await t
-            results.append(res)
-            if args.sleep > 0: await asyncio.sleep(args.sleep)
-            
-        for t in trials:
-            for r in results:
-                if t["run_id"] == r["run_id"]:
-                    t.update(r)
-    _write_jsonl(out_trials, trials)
+    judged_trial_ids = {
+        t["run_id"]: t for t in judged_trials
+        if "skipped" in t.get("judge_scores", {}) or (
+            "insight" in t.get("judge_scores", {}) and "error_insight" not in t.get("judge_scores", {})
+        )
+    }
+
+    trials_to_judge = [t for t in trials if t["run_id"] not in judged_trial_ids]
+    if trials_to_judge:
+        logger.info(f"Judging {len(trials_to_judge)} trials (already judged: {len(judged_trial_ids)})...")
+        for idx, t in enumerate(trials_to_judge, 1):
+            logger.info(f"  [Trial {idx}/{len(trials_to_judge)}] run_id={t.get('run_id')} (arm={t.get('experiment_arm')})...")
+            res = await _judge_trial_record(t, code_model, ins_model, sem, args.reproducibility)
+            t.update(res)
+            judged_trial_ids[t["run_id"]] = t
+            for ot in trials:
+                if ot["run_id"] == t["run_id"]:
+                    ot.update(t)
+            _write_jsonl(out_trials, trials)
+            if args.sleep > 0:
+                await asyncio.sleep(args.sleep)
+    else:
+        logger.info(f"All {len(trials)} trials already judged.")
 
     # 3. Human sample
     if args.human_sample > 0:
