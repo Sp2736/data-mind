@@ -1,4 +1,10 @@
-"""Analyze experiment results (T18)."""
+"""Analyze experiment results (T18).
+
+Usage:
+    python -m experiment.analyze_results
+    python -m experiment.analyze_results --logs-dir /custom/path/to/logs
+"""
+import argparse
 import json
 import statistics
 from pathlib import Path
@@ -17,7 +23,20 @@ def _load_jsonl(path: Path) -> list[dict]:
     return res
 
 def main():
-    logs_dir = Path("../data/logs")
+    parser = argparse.ArgumentParser(description="Analyze judged experiment results.")
+    parser.add_argument(
+        "--logs-dir",
+        default=None,
+        help="Path to logs dir. Defaults to settings.logs_dir from .env.",
+    )
+    args = parser.parse_args()
+
+    if args.logs_dir:
+        logs_dir = Path(args.logs_dir)
+    else:
+        from app.config import settings
+        logs_dir = Path(settings.logs_dir)
+
     batches = _load_jsonl(logs_dir / "rq_batches_judged.jsonl")
     trials = _load_jsonl(logs_dir / "trials_judged.jsonl")
 
