@@ -101,11 +101,11 @@ def main():
         ig = []
         for t in arm_trials:
             js = t.get("judge_scores", {})
-            if "code_quality" in js:
+            if "code_quality" in js and js["code_quality"] is not None:
                 corr.append(js["code_quality"].get("correctness", 0))
-            if "insight_automatic" in js:
+            if "insight_automatic" in js and js["insight_automatic"] is not None:
                 faith.append(js["insight_automatic"].get("faithfulness_rate_with_profile", 0))
-            if "insight" in js and "error_insight" not in js["insight"]:
+            if "insight" in js and js["insight"] is not None and "error_insight" not in js["insight"]:
                 ig.append(js["insight"].get("groundedness_rate", 0))
                 
         trial_metrics[arm] = {
