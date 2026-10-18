@@ -231,6 +231,13 @@ def run_import(bundle_zip: Path, dry_run: bool = False) -> None:
         with zipfile.ZipFile(bundle_zip, "r") as zf:
             zf.extractall(tmp_dir)
 
+        # Handle bundles where all content is nested under a single subfolder
+        # (e.g. jalisa_data/ created as a folder backup rather than via export script).
+        top_level = [p for p in tmp_dir.iterdir()]
+        if len(top_level) == 1 and top_level[0].is_dir() and not (tmp_dir / "datamind.db").exists():
+            print(f"  - Detected subfolder bundle layout, re-rooting to: {top_level[0].name}/")
+            tmp_dir = top_level[0]
+
         manifest_file = tmp_dir / "manifest.json"
         if manifest_file.exists():
             with open(manifest_file, "r", encoding="utf-8") as f:
