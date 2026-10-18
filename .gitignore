@@ -25,6 +25,11 @@ build/
 .idea/
 .DS_Store
 
+# Archives & Data bundles
+*.zip
+*.tar.gz
+*.tar
+
 # Logs
 *.log
 /data/
