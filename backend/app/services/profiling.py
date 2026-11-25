@@ -26,7 +26,11 @@ def load_dataframe(path: str, fmt: str) -> pd.DataFrame:
     fmt = fmt.lower().lstrip(".")
     try:
         if fmt == "csv":
-            return pd.read_csv(path)
+            try:
+                # Use python engine with sep=None to sniff delimiter (e.g. comma, semicolon, tab)
+                return pd.read_csv(path, sep=None, engine="python")
+            except Exception:
+                return pd.read_csv(path)
         if fmt == "tsv":
             return pd.read_csv(path, sep="\t")
         if fmt == "json":
