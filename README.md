@@ -433,3 +433,12 @@ DataMind is developed as a B.Tech research project studying whether retrieval-au
 <div align="center">
 <sub>Built locally-first, end to end — SQLite, the Chroma vector store, and the sandbox all run on your own machine.</sub>
 </div>
+
+
+---
+
+## 📊 Live Stats
+
+<!--LIVE_STATS_START-->
+<!-- auto-generated — do not edit manually -->
+<!--LIVE_STATS_END-->
